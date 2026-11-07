@@ -59,9 +59,11 @@ export interface IncomeOverride {
 }
 
 export interface FinancialState {
-  version: 2;
+  version: 3;
   customerName: string;
   currentBalance: Money | null;
+  /** The date currentBalance was known. It is treated as that day's closing balance. */
+  balanceAsOf: string | null;
   incomes: IncomeSource[];
   expenses: Expense[];
   goals: SavingsGoal[];
@@ -120,6 +122,15 @@ export interface FinancialEvent {
   sourceId?: string;
   detail?: string;
   runningBalance?: Money;
+}
+
+export interface DailyForecast {
+  date: string;
+  openingBalance?: Money;
+  closingBalance?: Money;
+  income: Money;
+  expenses: Money;
+  events: FinancialEvent[];
 }
 
 export type AssistantAction =

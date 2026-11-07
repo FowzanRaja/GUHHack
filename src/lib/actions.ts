@@ -62,7 +62,10 @@ export function previewAssistantAction(state: FinancialState, action: AssistantA
         nextState.allocationOverrides = {};
         nextState.manualPots = [];
       }
-      if (action.currentBalance !== undefined) nextState.currentBalance = action.currentBalance;
+      if (action.currentBalance !== undefined) {
+        nextState.currentBalance = action.currentBalance;
+        nextState.balanceAsOf = isoDate(now);
+      }
       if (action.emergencyFundContribution !== undefined) nextState.emergencyFundContribution = action.emergencyFundContribution;
       title = action.profileMode === 'merge' ? 'Add these details to your plan' : 'Here’s the plan Cora understood';
       explanation = action.profileMode === 'replace'

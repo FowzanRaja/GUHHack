@@ -1,7 +1,7 @@
 import { describe, expect, it } from 'vitest';
 import { endOfMonth } from 'date-fns';
 import { previewAssistantAction } from './actions';
-import { calendarEvents, calculatePlan, projectGoal } from './engine';
+import { calendarEvents, calculatePlan, dailyForecast, projectGoal } from './engine';
 import { demoState, emptyState } from './demo';
 import { isoDate, monthlyOccurrence, scheduleDates } from './dates';
 import { poundsToPennies } from './money';
@@ -84,5 +84,45 @@ describe('plan calculation', () => {
     expect(events.filter((event) => event.type === 'allocation').every((event) => event.balanceImpact === 0)).toBe(true);
     expect(events.filter((event) => event.type === 'goal').every((event) => event.balanceImpact === 0)).toBe(true);
     expect(impacts).toBe(income - expenses);
+  });
+});
+
+describe('continuous daily balances', () => {
+  function cashFlowState() {
+    const state = emptyState();
+    state.currentBalance = poundsToPennies(1000);
+    state.balanceAsOf = '2026-11-30';
+    state.incomes = [{ id: 'salary', name: 'Salary', amount: poundsToPennies(1800), schedule: { kind: 'monthly', day: 25 } }];
+    state.expenses = [{ id: 'rent', name: 'Rent', amount: poundsToPennies(650), category: 'bills' as const, essential: true, schedule: { kind: 'monthly' as const, day: 1 } }];
+    return state;
+  }
+
+  it('carries one running balance through November, December and January', () => {
+    const days = dailyForecast(cashFlowState(), new Date(2026, 10, 30), new Date(2027, 0, 2));
+    const closing = new Map(days.map((day) => [day.date, day.closingBalance]));
+    expect(closing.get('2026-11-30')).toBe(poundsToPennies(1000));
+    expect(closing.get('2026-12-01')).toBe(poundsToPennies(350));
+    expect(closing.get('2026-12-24')).toBe(poundsToPennies(350));
+    expect(closing.get('2026-12-25')).toBe(poundsToPennies(2150));
+    expect(closing.get('2027-01-01')).toBe(poundsToPennies(1500));
+    expect(closing.get('2027-01-02')).toBe(poundsToPennies(1500));
+  });
+
+  it('applies a temporary income override once and resumes the recurring amount next month', () => {
+    const state = cashFlowState();
+    state.incomeOverrides = [{ id: 'lower-december', sourceId: 'salary', originalDate: '2026-12-25', amount: poundsToPennies(1200) }];
+    const days = dailyForecast(state, new Date(2026, 10, 30), new Date(2027, 0, 25));
+    const closing = new Map(days.map((day) => [day.date, day.closingBalance]));
+    expect(closing.get('2026-12-25')).toBe(poundsToPennies(1550));
+    expect(closing.get('2027-01-01')).toBe(poundsToPennies(900));
+    expect(closing.get('2027-01-25')).toBe(poundsToPennies(2700));
+  });
+
+  it('keeps dates before the known balance unavailable and carries across days with no events', () => {
+    const days = dailyForecast(cashFlowState(), new Date(2026, 10, 28), new Date(2026, 11, 3));
+    const byDate = new Map(days.map((day) => [day.date, day]));
+    expect(byDate.get('2026-11-29')?.closingBalance).toBeUndefined();
+    expect(byDate.get('2026-12-02')?.closingBalance).toBe(poundsToPennies(350));
+    expect(byDate.get('2026-12-03')?.closingBalance).toBe(poundsToPennies(350));
   });
 });

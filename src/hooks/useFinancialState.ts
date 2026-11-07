@@ -16,12 +16,18 @@ function loadState(): FinancialState {
 
 export function migrateState(saved: Partial<Omit<FinancialState, 'version'>> & { version?: number }): FinancialState {
   const defaults = emptyState();
-  if (saved.version !== 1 && saved.version !== 2) return defaults;
+  if (saved.version !== 1 && saved.version !== 2 && saved.version !== 3) return defaults;
+  const migratedBalanceDate = typeof saved.balanceAsOf === 'string'
+    ? saved.balanceAsOf
+    : typeof saved.currentBalance === 'number' && typeof saved.lastUpdated === 'string'
+      ? saved.lastUpdated.slice(0, 10)
+      : null;
   return {
     ...defaults,
     ...saved,
-    version: 2,
+    version: 3,
     currentBalance: typeof saved.currentBalance === 'number' ? saved.currentBalance : null,
+    balanceAsOf: migratedBalanceDate,
     emergencyFundContribution: typeof saved.emergencyFundContribution === 'number' ? saved.emergencyFundContribution : null,
     conversation: saved.conversation && Array.isArray(saved.conversation.history)
       ? { history: saved.conversation.history.slice(-24), pending: saved.conversation.pending, proposal: saved.conversation.proposal }

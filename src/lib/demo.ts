@@ -5,9 +5,10 @@ import { poundsToPennies } from './money';
 
 export function emptyState(): FinancialState {
   return {
-    version: 2,
+    version: 3,
     customerName: '',
     currentBalance: null,
+    balanceAsOf: null,
     incomes: [],
     expenses: [],
     goals: [],
@@ -36,6 +37,7 @@ export function demoState(now = new Date()): FinancialState {
     ...emptyState(),
     customerName: 'Alex',
     currentBalance: poundsToPennies(1120),
+    balanceAsOf: isoDate(now),
     emergencyFundContribution: poundsToPennies(75),
     isDemo: true,
     conversation: {

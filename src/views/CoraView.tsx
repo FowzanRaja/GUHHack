@@ -1,4 +1,4 @@
-import { useRef, useState } from 'react';
+import { useEffect, useRef, useState } from 'react';
 import { format } from 'date-fns';
 import {
   AlertCircle,
@@ -21,7 +21,7 @@ import type {
   ActionPreview,
 } from '../lib/actions';
 import { previewAssistantAction } from '../lib/actions';
-import type { ChatMessage, Expense, FinancialState, IncomeSource, Schedule } from '../types';
+import type { ChatMessage, Expense, FinancialState, IncomeSource, SavingsGoal, Schedule } from '../types';
 import { formatMoney } from '../lib/money';
 import { describeScheduleDay } from '../lib/demo';
 import { makeId } from '../lib/id';
@@ -29,27 +29,36 @@ import { isoDate } from '../lib/dates';
 import { answerInformationRequest, boundedHistory } from '../lib/information';
 import { MoneyInput } from '../components/MoneyInput';
 import { Modal } from '../components/Modal';
+import { SavingsGoalsSection } from './GoalsView';
 
 interface CoraViewProps {
   state: FinancialState;
   onStateChange: (state: FinancialState, announcement?: string) => void;
+  onSaveGoal: (goal: SavingsGoal) => void;
+  onDeleteGoal: (id: string) => void;
 }
 
-const suggestedPrompts = [
-  'I’m only getting paid £1,200 this month instead of £1,800.',
-  'I’ve got an unexpected £150 expense tomorrow.',
-  'Can I afford to put another £30 into savings?',
-  'I want to save £500 by March.',
-];
-
-export function CoraView({ state, onStateChange }: CoraViewProps) {
+export function CoraView({ state, onStateChange, onSaveGoal, onDeleteGoal }: CoraViewProps) {
   const messages = state.conversation.history;
   const [draft, setDraft] = useState('');
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState('');
   const [preview, setPreview] = useState<ActionPreview | null>(() => state.conversation.proposal ? previewAssistantAction(state, state.conversation.proposal) : null);
   const [entryEditor, setEntryEditor] = useState<{ type: 'income' | 'expense'; item?: IncomeSource | Expense } | null>(null);
+  const [balanceDraft, setBalanceDraft] = useState<number | null>(state.currentBalance);
   const bottomRef = useRef<HTMLDivElement>(null);
+  const textareaRef = useRef<HTMLTextAreaElement>(null);
+  const composingRef = useRef(false);
+  const balanceDirty = balanceDraft !== state.currentBalance;
+
+  useEffect(() => setBalanceDraft(state.currentBalance), [state.currentBalance]);
+  useEffect(() => {
+    const textarea = textareaRef.current;
+    if (!textarea) return;
+    textarea.style.height = 'auto';
+    textarea.style.height = `${Math.min(textarea.scrollHeight, 144)}px`;
+    textarea.style.overflowY = textarea.scrollHeight > 144 ? 'auto' : 'hidden';
+  }, [draft]);
 
   async function sendMessage(text = draft) {
     const clean = text.trim();
@@ -185,15 +194,10 @@ export function CoraView({ state, onStateChange }: CoraViewProps) {
           </div>
 
           <div className="chat-composer-wrap">
-            {messages.length < 3 && (
-              <div className="mb-3 flex gap-2 overflow-x-auto pb-1" aria-label="Suggested messages">
-                {suggestedPrompts.slice(0, state.incomes.length ? 3 : 1).map((prompt) => <button key={prompt} onClick={() => sendMessage(prompt)} className="prompt-chip focus-ring">{prompt}</button>)}
-              </div>
-            )}
             {state.isDemo && !state.incomeOverrides.length && <button onClick={showDemoAdjustment} className="mb-3 flex w-full items-center justify-between rounded-xl bg-gradient-to-r from-cora-100 to-fuchsia-50 px-4 py-3 text-left text-xs font-semibold text-cora-900 hover:from-cora-200 focus-ring"><span className="flex items-center gap-2"><WandSparkles size={16} /> Run the judge demo: £1,200 salary this month</span><ChevronRight size={16} /></button>}
             <form onSubmit={(event) => { event.preventDefault(); void sendMessage(); }} className="chat-composer">
               <label htmlFor="cora-message" className="sr-only">Message Cora</label>
-              <textarea id="cora-message" rows={2} value={draft} onChange={(event) => setDraft(event.target.value)} onKeyDown={(event) => { if (event.key === 'Enter' && !event.shiftKey) { event.preventDefault(); void sendMessage(); } }} placeholder="Tell Cora what has changed…" className="focus-ring" />
+              <textarea ref={textareaRef} id="cora-message" rows={2} value={draft} onChange={(event) => setDraft(event.target.value)} onCompositionStart={() => { composingRef.current = true; }} onCompositionEnd={() => { composingRef.current = false; }} onKeyDown={(event) => { if (event.key === 'Enter' && !event.shiftKey && !composingRef.current && !event.nativeEvent.isComposing) { event.preventDefault(); void sendMessage(); } }} placeholder="Tell Cora what has changed…" className="focus-ring" />
               <button type="submit" disabled={!draft.trim() || loading} className="send-button focus-ring" aria-label="Send message"><Send size={18} /></button>
             </form>
             <p className="mt-2 text-center text-[10px] text-slate-400">Cora can make mistakes. Check the figures before confirming.</p>
@@ -205,10 +209,14 @@ export function CoraView({ state, onStateChange }: CoraViewProps) {
             <div><span className="eyebrow"><Settings2 size={13} /> Manual controls</span><h2 className="section-title">Your details</h2><p className="section-subtitle">Add or correct anything without AI.</p></div>
           </div>
           <div className="mt-5 rounded-2xl bg-cora-50 p-4">
-            <MoneyInput id="current-balance" label="Available balance today" value={state.currentBalance ?? 0} onChange={(value) => onStateChange({ ...state, currentBalance: value }, 'Available balance updated.')} hint="Used only for cash-flow forecasts" />
-            {state.currentBalance === null
+            <MoneyInput id="current-balance" label="Available balance today" value={balanceDraft ?? 0} onChange={setBalanceDraft} hint="Draft only until you save. Used for cash-flow forecasts." />
+            {balanceDraft === null
               ? <p className="mt-2 text-[11px] text-amber-800">Not provided — cash-flow shortfall warnings are paused.</p>
-              : <button onClick={() => onStateChange({ ...state, currentBalance: null }, 'Available balance marked as unknown.')} className="mt-2 text-[11px] font-semibold text-cora-700 underline">Mark balance as unknown</button>}
+              : <button onClick={() => setBalanceDraft(null)} className="mt-2 text-[11px] font-semibold text-cora-700 underline">Mark balance as unknown</button>}
+            <div className="mt-4 flex justify-end gap-2 border-t border-cora-100 pt-3">
+              <button disabled={!balanceDirty} onClick={() => setBalanceDraft(state.currentBalance)} className="button-secondary button-small focus-ring disabled:cursor-not-allowed disabled:opacity-50">Cancel</button>
+              <button disabled={!balanceDirty} onClick={() => onStateChange({ ...state, currentBalance: balanceDraft, balanceAsOf: balanceDraft === null ? null : isoDate(new Date()) }, balanceDraft === null ? 'Available balance marked as unknown.' : 'Available balance saved for today.')} className="button-primary button-small focus-ring disabled:cursor-not-allowed disabled:opacity-50">Save changes</button>
+            </div>
           </div>
 
           <ManualSection title="Income" addLabel="Add income" onAdd={() => setEntryEditor({ type: 'income' })}>
@@ -224,6 +232,10 @@ export function CoraView({ state, onStateChange }: CoraViewProps) {
 
           <div className="mt-6 rounded-2xl border border-cora-100 bg-white p-4 text-xs leading-5 text-slate-600"><strong className="block text-cora-950">You stay in control</strong>Cora proposes changes. The calculation engine checks them, and nothing is saved until you confirm.</div>
         </aside>
+      </section>
+
+      <section className="card card-roomy" aria-label="Savings goals in Cora">
+        <SavingsGoalsSection state={state} onSave={onSaveGoal} onDelete={onDeleteGoal} onAskCora={() => { textareaRef.current?.focus(); window.scrollTo({ top: 0, behavior: 'smooth' }); }} embedded />
       </section>
 
       {entryEditor && <EntryModal type={entryEditor.type} item={entryEditor.item} onClose={() => setEntryEditor(null)} onSave={saveEntry} />}

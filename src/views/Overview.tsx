@@ -16,7 +16,7 @@ import {
   WalletCards,
 } from 'lucide-react';
 import type { FinancialPlan, FinancialState, PlannedPot } from '../types';
-import { forecastNextDays } from '../lib/engine';
+import { calculateAvailableToday, forecastNextDays } from '../lib/engine';
 import { formatMoney } from '../lib/money';
 import { parseDate, tryParseDate } from '../lib/dates';
 import { format } from 'date-fns';
@@ -41,37 +41,17 @@ export function Overview({ state, plan, onNavigate, onLoadDemo, onSetAllocation,
     [state],
   );
   const hasData = state.incomes.length > 0 || state.expenses.length > 0;
+  const availableToday = useMemo(() => calculateAvailableToday(state), [state]);
 
   if (!hasData) {
     return (
-      <div className="animate-enter">
-        <section className="welcome-panel">
-          <div className="relative z-10 max-w-2xl">
-            <span className="eyebrow eyebrow-light"><Sparkles size={14} /> A calmer way to plan payday</span>
-            <h1 className="mt-5 text-4xl font-bold tracking-tight text-white sm:text-5xl">Tell Cora what matters.<br />Make every payday count.</h1>
-            <p className="mt-5 max-w-xl text-base leading-7 text-cora-100 sm:text-lg">Cora turns your real income, bills and goals into simple Pots — then adapts the plan when life changes.</p>
-            <div className="mt-8 flex flex-wrap gap-3">
-              <button onClick={() => onNavigate('cora')} className="button-primary button-on-dark focus-ring">Build my plan</button>
-              <button onClick={onLoadDemo} className="button-secondary button-on-dark-secondary focus-ring"><Sparkles size={17} /> Try the £1,800 demo</button>
-            </div>
-            <p className="mt-6 flex items-center gap-2 text-xs text-cora-200"><ShieldCheck size={15} /> Prototype only — no bank login or real transfers</p>
-          </div>
-          <div className="welcome-orb welcome-orb-one" aria-hidden="true" />
-          <div className="welcome-orb welcome-orb-two" aria-hidden="true" />
-        </section>
-
-        <section className="mt-6 grid gap-4 md:grid-cols-3" aria-label="How Cora works">
-          {[
-            ['01', 'Share the basics', 'Type naturally or use simple manual fields. You stay in control.'],
-            ['02', 'See your Pots', 'Essentials are covered first, using your actual figures.'],
-            ['03', 'Adapt with confidence', 'Preview the impact of a change before anything is saved.'],
-          ].map(([number, title, body]) => (
-            <article className="card group" key={number}>
-              <span className="text-sm font-bold text-rosebank">{number}</span>
-              <h2 className="mt-5 text-lg font-bold text-cora-950">{title}</h2>
-              <p className="mt-2 text-sm leading-6 text-slate-600">{body}</p>
-            </article>
-          ))}
+      <div className="space-y-6 animate-enter">
+        <div><span className="eyebrow"><WalletCards size={14} /> Monthly picture</span><h1 className="page-title">Overview</h1><p className="page-subtitle">Your Smart Pots, monthly totals and upcoming payments will appear here.</p></div>
+        <section className="empty-state card">
+          <div className="empty-state-icon"><WalletCards size={30} /></div>
+          <h2 className="mt-5 text-2xl font-bold text-cora-950">Your overview is ready to be built</h2>
+          <p className="mt-2 max-w-lg text-sm leading-6 text-slate-600">Add your income and regular costs with Cora, or load the demo to explore a complete plan.</p>
+          <div className="mt-6 flex flex-wrap justify-center gap-3"><button onClick={() => onNavigate('cora')} className="button-primary focus-ring">Build my plan</button><button onClick={onLoadDemo} className="button-secondary focus-ring"><Sparkles size={17} /> Try the £1,800 demo</button></div>
         </section>
       </div>
     );
@@ -130,9 +110,12 @@ export function Overview({ state, plan, onNavigate, onLoadDemo, onSetAllocation,
               ))}
             </div>
           </div>
-          <div className="mt-6 flex flex-wrap items-center justify-between gap-3 rounded-2xl bg-cora-50 px-4 py-3 text-sm">
-            <span className="text-slate-600">Total planned</span>
-            <span className="font-bold text-cora-950">{formatMoney(plan.totalAllocated)} of {formatMoney(plan.expectedIncome)}</span>
+          <div className="mt-6 grid gap-2 sm:grid-cols-2 lg:grid-cols-5" aria-label="Smart Pots allocation totals">
+            <PlanFigure label="Monthly income" value={formatMoney(plan.expectedIncome)} />
+            <PlanFigure label="Allocated" value={formatMoney(plan.totalAllocated)} />
+            <PlanFigure label="Unallocated" value={formatMoney(plan.unallocated)} />
+            <PlanFigure label="Balance today" value={state.currentBalance === null ? 'Unavailable' : formatMoney(state.currentBalance)} />
+            <PlanFigure label="Available to spend" value={availableToday.status === 'available' ? formatMoney(availableToday.amount) : 'Unavailable'} detail={availableToday.status === 'available' ? `${formatMoney(availableToday.reserved)} still reserved` : availableToday.reason} warning={availableToday.status === 'available' && availableToday.amount < 0} />
           </div>
         </article>
 
@@ -173,7 +156,7 @@ export function Overview({ state, plan, onNavigate, onLoadDemo, onSetAllocation,
             <h2 className="mt-1 text-xl font-bold text-white">{state.goals[0].name}</h2>
             <p className="mt-1 text-sm text-cora-100">{formatMoney(state.goals[0].currentAmount)} saved of {formatMoney(state.goals[0].targetAmount)} · {tryParseDate(state.goals[0].targetDate) ? `target ${format(tryParseDate(state.goals[0].targetDate)!, 'd MMMM yyyy')}` : 'target date needs correcting'}</p>
           </div>
-          <button onClick={() => onNavigate('goals')} className="button-on-dark button-secondary focus-ring">See progress <ChevronRight size={16} /></button>
+          <button onClick={() => onNavigate('cora')} className="button-on-dark button-secondary focus-ring">Manage with Cora <ChevronRight size={16} /></button>
         </section>
       )}
 
@@ -184,7 +167,10 @@ export function Overview({ state, plan, onNavigate, onLoadDemo, onSetAllocation,
 }
 
 function AllocationChart({ plan }: { plan: FinancialPlan }) {
-  const data = plan.pots.filter((pot) => pot.allocation > 0).map((pot) => ({ name: pot.name, value: pot.allocation, colour: pot.colour }));
+  const data = [
+    ...plan.pots.filter((pot) => pot.allocation > 0).map((pot) => ({ name: pot.name, value: pot.allocation, colour: pot.colour })),
+    ...(plan.unallocated > 0 ? [{ name: 'Unallocated', value: plan.unallocated, colour: '#94a3b8' }] : []),
+  ];
   return (
     <div className="relative h-[290px]" role="img" aria-label={`Allocation chart. ${data.map((item) => `${item.name}: ${formatMoney(item.value)}`).join(', ')}`}>
       <ResponsiveContainer width="100%" height="100%">
@@ -200,6 +186,10 @@ function AllocationChart({ plan }: { plan: FinancialPlan }) {
       </div>
     </div>
   );
+}
+
+function PlanFigure({ label, value, detail, warning = false }: { label: string; value: string; detail?: string; warning?: boolean }) {
+  return <div className={`rounded-2xl border p-3 ${warning ? 'border-red-200 bg-red-50' : 'border-cora-100 bg-cora-50'}`}><span className="block text-[10px] font-bold uppercase tracking-wider text-slate-500">{label}</span><strong className={`mt-1 block text-sm ${warning ? 'text-red-800' : 'text-cora-950'}`}>{value}</strong>{detail && <small className="mt-1 block text-[10px] leading-4 text-slate-500">{detail}</small>}</div>;
 }
 
 function SummaryCard({ icon: Icon, label, value, detail, tone }: { icon: typeof CirclePoundSterling; label: string; value: string; detail: string; tone: string }) {

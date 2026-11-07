@@ -14,20 +14,21 @@ interface GoalsViewProps {
   onSave: (goal: SavingsGoal) => void;
   onDelete: (id: string) => void;
   onAskCora: () => void;
+  embedded?: boolean;
 }
 
-export function GoalsView({ state, onSave, onDelete, onAskCora }: GoalsViewProps) {
+export function SavingsGoalsSection({ state, onSave, onDelete, onAskCora, embedded = false }: GoalsViewProps) {
   const [editing, setEditing] = useState<SavingsGoal | 'new' | null>(null);
   const plan = useMemo(() => calculatePlan(state), [state]);
   const totalTarget = state.goals.reduce((sum, goal) => sum + goal.targetAmount, 0);
   const totalSaved = state.goals.reduce((sum, goal) => sum + goal.currentAmount, 0);
 
   return (
-    <div className="space-y-6 animate-enter">
+    <div className={`space-y-6 ${embedded ? '' : 'animate-enter'}`}>
       <div className="flex flex-col justify-between gap-4 sm:flex-row sm:items-end">
         <div>
           <span className="eyebrow"><Target size={14} /> What matters to you</span>
-          <h1 className="page-title">Savings goals</h1>
+          {embedded ? <h2 className="section-title">Savings goals</h2> : <h1 className="page-title">Savings goals</h1>}
           <p className="page-subtitle">Cora works out contributions from your real upcoming paydays.</p>
         </div>
         <div className="flex flex-wrap gap-2">

@@ -1,13 +1,13 @@
 import type { ReactNode } from 'react';
-import { CalendarDays, Contrast, LayoutDashboard, MessageCircleMore, PiggyBank, RotateCcw, Sparkles, Trash2 } from 'lucide-react';
+import { CalendarDays, Home, LayoutDashboard, MessageCircleMore, Moon, RotateCcw, Sparkles, Sun, Trash2 } from 'lucide-react';
 
-export type NavSection = 'overview' | 'cora' | 'calendar' | 'goals';
+export type NavSection = 'home' | 'overview' | 'cora' | 'calendar';
 
 const navItems = [
+  { id: 'home' as const, label: 'Home', icon: Home },
   { id: 'overview' as const, label: 'Overview', icon: LayoutDashboard },
   { id: 'cora' as const, label: 'Cora', icon: MessageCircleMore },
   { id: 'calendar' as const, label: 'Calendar', icon: CalendarDays },
-  { id: 'goals' as const, label: 'Goals', icon: PiggyBank },
 ];
 
 interface LayoutProps {
@@ -17,25 +17,25 @@ interface LayoutProps {
   onResetDemo: () => void;
   onClearPlan: () => void;
   hasPlan: boolean;
-  simplified: boolean;
-  onToggleSimplified: () => void;
+  darkMode: boolean;
+  onToggleDarkMode: () => void;
   isDemo: boolean;
   children: ReactNode;
 }
 
-export function Layout({ active, onNavigate, onDemo, onResetDemo, onClearPlan, hasPlan, simplified, onToggleSimplified, isDemo, children }: LayoutProps) {
+export function Layout({ active, onNavigate, onDemo, onResetDemo, onClearPlan, hasPlan, darkMode, onToggleDarkMode, isDemo, children }: LayoutProps) {
   return (
-    <div className={simplified ? 'high-contrast min-h-screen' : 'min-h-screen'}>
+    <div className="min-h-screen">
       <a href="#main-content" className="skip-link">Skip to main content</a>
       <header className="sticky top-0 z-40 border-b border-white/10 bg-cora-950 text-white shadow-lg shadow-cora-950/10">
         <div className="mx-auto flex h-[4.75rem] max-w-[1500px] items-center justify-between gap-4 px-4 sm:px-6 lg:px-8">
-          <button className="group flex items-center gap-3 rounded-xl text-left focus-ring" onClick={() => onNavigate('overview')} aria-label="Cora Smart Pots home">
-            <span className="grid h-10 w-10 place-items-center rounded-xl bg-gradient-to-br from-white to-cora-200 text-cora-900 shadow-md transition-transform group-hover:-rotate-3">
-              <Sparkles size={20} aria-hidden="true" />
+          <button className="group flex min-w-0 items-center gap-3 rounded-xl text-left focus-ring" onClick={() => onNavigate('home')} aria-label="Cora Smart Pots home">
+            <span className="flex h-10 w-[112px] shrink-0 items-center justify-center overflow-hidden rounded-lg bg-white">
+              <img src="/natwest-logo.png" alt="NatWest" className="w-[108px] max-w-none object-contain" />
             </span>
-            <span>
-              <span className="block text-lg font-bold tracking-tight leading-none">Cora</span>
-              <span className="mt-1 block text-[11px] font-semibold uppercase tracking-[0.18em] text-cora-200">Smart Pots</span>
+            <span className="hidden border-l border-white/20 pl-3 sm:block">
+              <span className="block text-sm font-bold tracking-tight leading-none">Cora Smart Pots</span>
+              <span className="mt-1 block text-[9px] font-semibold uppercase tracking-[0.14em] text-cora-200">Unofficial concept</span>
             </span>
           </button>
 
@@ -57,12 +57,12 @@ export function Layout({ active, onNavigate, onDemo, onResetDemo, onClearPlan, h
           </div>
 
           <div className="flex items-center gap-2">
-            <button onClick={onToggleSimplified} className="icon-button focus-ring" title="Toggle high contrast" aria-pressed={simplified}>
-              <Contrast size={18} aria-hidden="true" />
-              <span className="sr-only">Toggle high contrast</span>
+            <button onClick={onToggleDarkMode} className="icon-button focus-ring" title={darkMode ? 'Use light theme' : 'Use dark theme'} aria-pressed={darkMode}>
+              {darkMode ? <Sun size={18} aria-hidden="true" /> : <Moon size={18} aria-hidden="true" />}
+              <span className="sr-only">{darkMode ? 'Use light theme' : 'Use dark theme'}</span>
             </button>
             {isDemo ? (
-              <button onClick={onResetDemo} className="header-action focus-ring"><RotateCcw size={16} aria-hidden="true" /> <span className="hidden sm:inline">Reset demo</span></button>
+              <button onClick={onResetDemo} className="header-action focus-ring" aria-label="Reset demo"><RotateCcw size={16} aria-hidden="true" /> <span className="hidden sm:inline">Reset demo</span></button>
             ) : (
               <button onClick={onDemo} className="header-action focus-ring"><Sparkles size={16} aria-hidden="true" /> Try a demo</button>
             )}

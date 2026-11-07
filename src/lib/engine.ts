@@ -336,7 +336,7 @@ function toPlannedPot(pot: FinancialState['manualPots'][number]): PlannedPot {
   };
 }
 
-export function calendarEvents(state: FinancialState, from: Date, to: Date): FinancialEvent[] {
+function calendarEventsForRange(state: FinancialState, from: Date, to: Date): FinancialEvent[] {
   const incomes = incomeEventsForRange(state, from, to);
   const expenses = expenseEventsForRange(state, from, to);
   const goalEvents: FinancialEvent[] = [];
@@ -377,16 +377,32 @@ export function calendarEvents(state: FinancialState, from: Date, to: Date): Fin
   }
 
   const order: Record<FinancialEvent['type'], number> = { income: 0, allocation: 1, goal: 2, expense: 3, warning: 4 };
-  const events = [...incomes, ...allocationEvents, ...goalEvents, ...expenses].sort(
+  return [...incomes, ...allocationEvents, ...goalEvents, ...expenses].sort(
     (a, b) => compareAsc(parseDate(a.date), parseDate(b.date)) || order[a.type] - order[b.type],
   );
-  let runningBalance: number | undefined = state.currentBalance ?? undefined;
-  const output: FinancialEvent[] = [];
-  for (const event of events) {
-    if (runningBalance !== undefined) runningBalance += event.balanceImpact;
-    output.push({ ...event, runningBalance });
-    if (runningBalance !== undefined && runningBalance < 0 && event.balanceImpact < 0) {
-      output.push({
+}
+
+/**
+ * Dated calendar events with a single continuous balance anchored to balanceAsOf.
+ * currentBalance is the known closing balance on that date, so scheduled events
+ * on or before it are never applied a second time.
+ */
+export function calendarEvents(state: FinancialState, from: Date, to: Date): FinancialEvent[] {
+  const visible = calendarEventsForRange(state, from, to);
+  if (state.currentBalance === null || !state.balanceAsOf) return visible;
+  const anchor = tryParseDate(state.balanceAsOf);
+  if (!anchor) return visible;
+
+  const forecastFrom = addDays(anchor, 1);
+  const forecastEvents = isAfter(forecastFrom, startOfDay(to)) ? [] : calendarEventsForRange(state, forecastFrom, to);
+  let runningBalance = state.currentBalance;
+  const balances = new Map<string, number>();
+  const warnings: FinancialEvent[] = [];
+  for (const event of forecastEvents) {
+    runningBalance += event.balanceImpact;
+    balances.set(event.id, runningBalance);
+    if (runningBalance < 0 && event.balanceImpact < 0) {
+      warnings.push({
         id: `warning-${event.id}`,
         date: event.date,
         type: 'warning',
@@ -394,11 +410,93 @@ export function calendarEvents(state: FinancialState, from: Date, to: Date): Fin
         amount: Math.abs(runningBalance),
         balanceImpact: 0,
         runningBalance,
-        detail: 'Based on known payments and the balance entered today',
+        detail: 'Based on the last known balance and dated payments only',
       });
     }
   }
-  return output;
+
+  const withBalances = visible.map((event) => ({
+    ...event,
+    runningBalance: event.date === state.balanceAsOf ? state.currentBalance! : balances.get(event.id),
+  }));
+  const visibleWarnings = warnings.filter((warning) => warning.date >= isoDate(from) && warning.date <= isoDate(to));
+  const order: Record<FinancialEvent['type'], number> = { income: 0, allocation: 1, goal: 2, expense: 3, warning: 4 };
+  return [...withBalances, ...visibleWarnings].sort(
+    (a, b) => compareAsc(parseDate(a.date), parseDate(b.date)) || order[a.type] - order[b.type],
+  );
+}
+
+export function dailyForecast(state: FinancialState, from: Date, to: Date): import('../types').DailyForecast[] {
+  const start = startOfDay(from);
+  const end = startOfDay(to);
+  if (isAfter(start, end)) return [];
+  const visibleEvents = calendarEvents(state, start, end);
+  const visibleByDate = new Map<string, FinancialEvent[]>();
+  for (const event of visibleEvents) {
+    const current = visibleByDate.get(event.date) ?? [];
+    current.push(event);
+    visibleByDate.set(event.date, current);
+  }
+
+  const anchor = state.balanceAsOf ? tryParseDate(state.balanceAsOf) : undefined;
+  let running = state.currentBalance ?? undefined;
+  const closings = new Map<string, { opening: number; closing: number }>();
+  if (anchor && running !== undefined && isAfter(end, anchor)) {
+    const allEvents = calendarEvents(state, addDays(anchor, 1), end);
+    const byDate = new Map<string, FinancialEvent[]>();
+    for (const event of allEvents.filter((item) => item.type !== 'warning')) {
+      const current = byDate.get(event.date) ?? [];
+      current.push(event);
+      byDate.set(event.date, current);
+    }
+    for (let day = addDays(anchor, 1); !isAfter(day, end); day = addDays(day, 1)) {
+      const date = isoDate(day);
+      const opening = running;
+      for (const event of byDate.get(date) ?? []) running += event.balanceImpact;
+      closings.set(date, { opening, closing: running });
+    }
+  }
+
+  const days: import('../types').DailyForecast[] = [];
+  for (let day = start; !isAfter(day, end); day = addDays(day, 1)) {
+    const date = isoDate(day);
+    const events = visibleByDate.get(date) ?? [];
+    const known = anchor && date === state.balanceAsOf
+      ? { opening: state.currentBalance!, closing: state.currentBalance! }
+      : closings.get(date);
+    days.push({
+      date,
+      openingBalance: known?.opening,
+      closingBalance: known?.closing,
+      income: events.filter((event) => event.type === 'income').reduce((sum, event) => sum + event.amount, 0),
+      expenses: events.filter((event) => event.type === 'expense').reduce((sum, event) => sum + event.amount, 0),
+      events,
+    });
+  }
+  return days;
+}
+
+export type AvailableToday =
+  | { status: 'available'; amount: number; balance: number; reserved: number; asOf: string }
+  | { status: 'unavailable'; reason: string };
+
+export function calculateAvailableToday(state: FinancialState, referenceDate = new Date()): AvailableToday {
+  if (state.currentBalance === null || !state.balanceAsOf || !tryParseDate(state.balanceAsOf)) {
+    return { status: 'unavailable', reason: 'Add a current balance to calculate this safely.' };
+  }
+  if (state.expenses.some((expense) => expense.schedule.kind === 'monthly_allowance')) {
+    return { status: 'unavailable', reason: 'Ongoing allowances do not track what has already been spent.' };
+  }
+  const today = startOfDay(referenceDate);
+  const anchor = parseDate(state.balanceAsOf);
+  if (isAfter(anchor, today)) return { status: 'unavailable', reason: 'The known balance date is in the future.' };
+  const todayForecast = dailyForecast(state, anchor, today).at(-1);
+  const balance = todayForecast?.closingBalance;
+  if (balance === undefined) return { status: 'unavailable', reason: 'A reliable balance for today is not available.' };
+  const futureStart = addDays(today, 1);
+  const monthEnd = endOfMonth(today);
+  const reserved = isAfter(futureStart, monthEnd) ? 0 : expenseEventsForRange(state, futureStart, monthEnd).reduce((sum, event) => sum + event.amount, 0);
+  return { status: 'available', amount: balance - reserved, balance, reserved, asOf: isoDate(today) };
 }
 
 export function forecastNextDays(state: FinancialState, days = 45, from = new Date()): FinancialEvent[] {

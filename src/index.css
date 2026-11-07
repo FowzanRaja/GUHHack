@@ -8,6 +8,7 @@
   * { box-sizing: border-box; }
   html { scroll-behavior: smooth; }
   body { @apply m-0 min-w-[320px] bg-[#f7f5f8] font-sans text-slate-800 antialiased; }
+  .dark body { background: #0d0915; color: #e8e2ef; }
   button, input, select, textarea { font: inherit; }
   button { -webkit-tap-highlight-color: transparent; }
   ::selection { @apply bg-cora-200 text-cora-950; }
@@ -103,6 +104,10 @@
   .day-event-warning { @apply border-amber-200 bg-amber-50; }
   .day-event-income .day-event-icon { @apply text-emerald-700; }
   .day-event-goal .day-event-icon { @apply text-rosebank; }
+  .day-figure-income { @apply bg-emerald-50 text-emerald-900; }
+  .day-figure-expense { @apply bg-cora-50 text-cora-950; }
+  .day-figure-balance { @apply bg-blue-50 text-blue-950; }
+  .day-figure-warning { @apply bg-red-50 text-red-900; }
 
   .goal-summary-card { @apply rounded-2xl border border-slate-200/80 bg-white p-5 shadow-card; }
   .goal-summary-card p { @apply mt-4 text-xs font-semibold uppercase tracking-wider text-slate-500; }
@@ -133,7 +138,7 @@
   .chat-bubble-user { @apply rounded-br-md bg-cora-800 text-white; }
   .chat-composer-wrap { @apply border-t border-slate-100 bg-white p-3 sm:p-4; }
   .chat-composer { @apply flex items-end gap-2 rounded-2xl border border-slate-200 bg-slate-50 p-2 focus-within:border-cora-400 focus-within:ring-1 focus-within:ring-cora-400; }
-  .chat-composer textarea { @apply max-h-28 min-h-[42px] flex-1 resize-none border-0 bg-transparent px-2 py-2 text-sm leading-5 text-slate-900 placeholder:text-slate-400 focus:ring-0; }
+  .chat-composer textarea { @apply min-h-[42px] max-h-36 flex-1 resize-none border-0 bg-transparent px-2 py-2 text-sm leading-5 text-slate-900 placeholder:text-slate-400 focus:ring-0; }
   .send-button { @apply grid h-10 w-10 shrink-0 place-items-center rounded-xl bg-cora-800 text-white transition-colors hover:bg-cora-950 disabled:cursor-not-allowed disabled:opacity-40; }
   .prompt-chip { @apply max-w-[240px] shrink-0 truncate rounded-full border border-cora-200 bg-cora-50 px-3 py-1.5 text-[11px] font-semibold text-cora-800 hover:bg-cora-100; }
   .proposal-card { @apply ml-0 rounded-2xl border border-cora-200 bg-white p-4 shadow-soft sm:ml-9 sm:p-5; }
@@ -145,9 +150,67 @@
 .animate-enter { animation: enter .34s ease-out both; }
 @keyframes enter { from { opacity: 0; transform: translateY(6px); } to { opacity: 1; transform: translateY(0); } }
 
-.high-contrast { filter: contrast(1.08); }
-.high-contrast .page-subtitle, .high-contrast .section-subtitle, .high-contrast .text-slate-500 { color: #374151 !important; }
-.high-contrast .card, .high-contrast .summary-card, .high-contrast .goal-card { border-color: #777 !important; box-shadow: none; }
+.dark main { color: #e8e2ef; }
+.dark .card,
+.dark .summary-card,
+.dark .month-stat,
+.dark .goal-summary-card,
+.dark .goal-card,
+.dark .chat-shell,
+.dark .modal-panel { background: #181124; border-color: #3b2c4d; box-shadow: 0 8px 30px rgba(0,0,0,.24); }
+.dark .chat-messages { background: linear-gradient(to bottom, rgba(59,10,87,.36), #181124); }
+.dark .chat-bubble-assistant,
+.dark .proposal-card,
+.dark .chat-composer-wrap { background: #20172c; border-color: #3b2c4d; color: #e8e2ef; }
+.dark .chat-composer { background: #120c1c; border-color: #4c3a60; }
+.dark .text-input,
+.dark .money-input-wrap { background: #120c1c; border-color: #4c3a60; color: #cfc4da; }
+.dark .money-input,
+.dark .chat-composer textarea { color: #f6f1fa; }
+.dark .button-secondary { background: #21162e; border-color: #5c4172; color: #e9dff2; }
+.dark .button-quiet,
+.dark .round-link,
+.dark .calendar-nav { background: #291a39; color: #d8bce9; }
+.dark .nav-button-active,
+.dark .header-action,
+.dark .button-on-dark { background: white !important; color: #27043d !important; }
+.dark .text-cora-950,
+.dark .text-slate-900,
+.dark .text-slate-800,
+.dark .text-slate-700 { color: #f3edf7 !important; }
+.dark .text-slate-600,
+.dark .text-slate-500,
+.dark .text-slate-400 { color: #b7a9c4 !important; }
+.dark .page-title,
+.dark .section-title { color: #f7f2fa; }
+.dark .page-subtitle,
+.dark .section-subtitle { color: #b7a9c4; }
+.dark .eyebrow { color: #d8b4ef; }
+.dark .bg-white { background-color: #181124; }
+.dark .bg-cora-50,
+.dark .bg-slate-50,
+.dark .bg-slate-50\/70,
+.dark .bg-slate-50\/50 { background-color: #21162e; }
+.dark .border-slate-100,
+.dark .border-slate-200,
+.dark .border-slate-200\/80,
+.dark .border-cora-100 { border-color: #3b2c4d; }
+.dark .divide-slate-100 > :not([hidden]) ~ :not([hidden]) { border-color: #3b2c4d; }
+.dark .calendar-day { border-color: #35283f; }
+.dark .calendar-day:hover,
+.dark .calendar-day-muted { background: #120c1c; }
+.dark .calendar-day-muted { color: #665772; }
+.dark .calendar-event-expense { background: #4a2860; color: #f0e3f6; }
+.dark .calendar-event-allocation { background: #182b4b; color: #dbeafe; }
+.dark .day-event,
+.dark .goal-detail,
+.dark .proposal-figure { background: #20172c; border-color: #3b2c4d; }
+.dark .day-event-icon { background: #2d203b; }
+.dark .goal-progress-ring::before { background: #181124; }
+.dark nav.bg-white\/95 { background: rgba(24,17,36,.96); border-color: #3b2c4d; }
+.dark footer { border-color: #3b2c4d; }
+.dark .recharts-default-tooltip { background: #21162e !important; border-color: #5c4172 !important; color: #f3edf7 !important; }
+.dark .focus-ring:focus-visible { --tw-ring-offset-color: #0d0915; }
 
 @media (prefers-reduced-motion: reduce) {
   *, *::before, *::after { scroll-behavior: auto !important; animation-duration: .01ms !important; animation-iteration-count: 1 !important; transition-duration: .01ms !important; }

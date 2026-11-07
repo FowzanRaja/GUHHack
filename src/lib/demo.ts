@@ -35,10 +35,13 @@ export function emptyState(): FinancialState {
 export function demoState(now = new Date()): FinancialState {
   return {
     ...emptyState(),
-    customerName: 'Alex',
+    customerName: 'Sowban',
     currentBalance: poundsToPennies(1120),
     balanceAsOf: isoDate(now),
     emergencyFundContribution: poundsToPennies(75),
+    // Shown to the customer as an existing planned contribution to review, not as their choice.
+    emergencyFundOrigin: 'existing',
+    emergencyFundPaused: false,
     isDemo: true,
     conversation: {
       history: [

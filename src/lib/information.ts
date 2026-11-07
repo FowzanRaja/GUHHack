@@ -30,10 +30,17 @@ export function answerInformationRequest(state: FinancialState, action: Informat
         ? `Your next known income is ${formatMoney(next.amount)} from ${next.name} on ${format(parseDate(next.date), 'd MMMM yyyy')}.${temporary ? ` This is a temporary adjustment; the regular amount remains ${formatMoney(source.amount)}.` : ''}`
         : 'There is no upcoming income date in the plan yet.';
     }
-    case 'savings':
-      return state.goals.length
-        ? `This month’s plan puts ${formatMoney(plan.savingsAllocated)} towards savings. You have ${state.goals.length} active goal${state.goals.length === 1 ? '' : 's'}, with ${formatMoney(state.goals.reduce((sum, goal) => sum + goal.currentAmount, 0))} recorded as saved so far.`
-        : `This month’s plan puts ${formatMoney(plan.savingsAllocated)} into savings. You have not added a named savings goal yet.`;
+    case 'savings': {
+      const parts = plan.pots
+        .filter((pot) => pot.priority === 'savings' && pot.allocation > 0)
+        .map((pot) => `${formatMoney(pot.allocation)} ${pot.id === 'emergency' ? 'emergency buffer' : `for ${pot.name}`}`);
+      const breakdown = parts.length ? ` (${parts.join(' + ')})` : '';
+      const saved = state.goals.reduce((sum, goal) => sum + goal.currentAmount, 0);
+      const goalsText = state.goals.length
+        ? ` You have ${state.goals.length} active goal${state.goals.length === 1 ? '' : 's'}, with ${formatMoney(saved)} recorded as already saved.`
+        : ' You have not added a named savings goal yet.';
+      return `Your planned savings this month are ${formatMoney(plan.savingsAllocated)}${breakdown}. These are planned contributions, not money already saved.${goalsText}${emergencyExplanation(state, plan)}`;
+    }
     case 'personal_spending':
       return `After known commitments and planned savings, ${formatMoney(plan.flexibleSpending)} is allocated to flexible personal spending this month.${plan.shortfall ? ` There is also a ${formatMoney(plan.shortfall)} shortfall in protected needs.` : ''}`;
     case 'upcoming_bills': {
@@ -50,6 +57,19 @@ export function answerInformationRequest(state: FinancialState, action: Informat
       return `${goal.name} has ${formatMoney(goal.currentAmount)} saved of ${formatMoney(goal.targetAmount)}, leaving ${formatMoney(breakdown.remaining)}. The affordable recommendation for the next eligible payday is ${formatMoney(breakdown.recommendedContribution)}.${breakdown.onTrack ? ' The current schedule is on track.' : ' At the current affordable rate, the deadline needs adjusting.'}`;
     }
   }
+}
+
+function emergencyExplanation(state: FinancialState, plan: ReturnType<typeof calculatePlan>): string {
+  const amount = state.emergencyFundContribution ?? 0;
+  if (!amount) return ' There is no emergency buffer in your plan. I can suggest one, but nothing is added unless you confirm.';
+  if (state.emergencyFundPaused) return ` Your ${formatMoney(amount)} emergency buffer is paused, so nothing is planned for it.`;
+  const origin = state.emergencyFundOrigin === 'customer'
+    ? 'is an amount you chose'
+    : state.emergencyFundOrigin === 'cora'
+      ? 'is an amount I recommended and you approved'
+      : 'was already in your plan, so please review it — you can change or pause it in Your details';
+  const needs = plan.essentialCommitments + plan.everydayNeeds;
+  return ` The ${formatMoney(amount)} monthly emergency buffer ${origin}. It is only planned after your ${formatMoney(needs)} of bills and everyday needs are covered, and before goal contributions.`;
 }
 
 function tryDate(value: string): boolean {

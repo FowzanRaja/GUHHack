@@ -24,7 +24,7 @@ export function HomeView({ state, plan, onNavigate, onLoadDemo }: { state: Finan
 
       <section className="grid gap-4 md:grid-cols-3" aria-label="Plan shortcuts">
         <HomeCard icon={MessageCircleMore} title="Talk it through" body="Tell Cora what changed. Review the exact proposal before saving." action="Open Cora" onClick={() => onNavigate('cora')} />
-        <HomeCard icon={WalletCards} title="See the whole plan" body={hasData ? `${formatMoney(plan.totalAllocated)} allocated from ${formatMoney(plan.expectedIncome)} expected this month.` : 'Your income, Pots and savings will appear here once added.'} action="Open overview" onClick={() => onNavigate('overview')} />
+        <HomeCard icon={WalletCards} title="See the whole plan" body={hasData ? `${formatMoney(plan.expectedIncome, { compact: true })} expected this month, with ${formatMoney(plan.savingsAllocated, { compact: true })} planned for savings.` : 'Your income, Pots and savings will appear here once added.'} action="Open overview" onClick={() => onNavigate('overview')} />
         <HomeCard icon={CalendarClock} title="Check the timing" body="Follow one continuous balance across paydays, bills and month boundaries." action="Open calendar" onClick={() => onNavigate('calendar')} />
       </section>
     </div>

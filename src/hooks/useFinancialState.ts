@@ -29,6 +29,10 @@ export function migrateState(saved: Partial<Omit<FinancialState, 'version'>> & {
     currentBalance: typeof saved.currentBalance === 'number' ? saved.currentBalance : null,
     balanceAsOf: migratedBalanceDate,
     emergencyFundContribution: typeof saved.emergencyFundContribution === 'number' ? saved.emergencyFundContribution : null,
+    emergencyFundOrigin: saved.emergencyFundOrigin === 'customer' || saved.emergencyFundOrigin === 'cora' || saved.emergencyFundOrigin === 'existing'
+      ? saved.emergencyFundOrigin
+      : typeof saved.emergencyFundContribution === 'number' ? 'existing' : undefined,
+    emergencyFundPaused: saved.emergencyFundPaused === true,
     conversation: saved.conversation && Array.isArray(saved.conversation.history)
       ? { history: saved.conversation.history.slice(-24), pending: saved.conversation.pending, proposal: saved.conversation.proposal }
       : defaults.conversation,

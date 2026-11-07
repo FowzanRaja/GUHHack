@@ -10,6 +10,7 @@ import {
   startOfMonth,
 } from 'date-fns';
 import type {
+  AvailableAfterPots,
   ExpenseCategory,
   Expense,
   FinancialEvent,
@@ -17,6 +18,7 @@ import type {
   FinancialState,
   PlannedPot,
   PlanNotice,
+  PotReserveItem,
   SavingsGoal,
 } from '../types';
 import { isoDate, parseDate, scheduleDates, tryParseDate } from './dates';
@@ -193,7 +195,12 @@ function distributeAmount(total: number, incomes: FinancialEvent[]): number[] {
   });
 }
 
-function commitmentsBeforeGoals(state: FinancialState, referenceDate: Date, income: number): number {
+/** The emergency contribution the customer has in their plan. Paused contributions plan nothing. */
+export function plannedEmergencyContribution(state: FinancialState): number {
+  return state.emergencyFundPaused ? 0 : clampMoney(state.emergencyFundContribution ?? 0);
+}
+
+function protectedCommitmentsForMonth(state: FinancialState, referenceDate: Date): number {
   const categories = new Map<ExpenseCategory, { amount: number; protected: boolean }>();
   for (const expense of state.expenses) {
     const amount = expenseAmountForMonth(expense, referenceDate);
@@ -208,9 +215,43 @@ function commitmentsBeforeGoals(state: FinancialState, referenceDate: Date, inco
   const manualProtected = state.manualPots
     .filter((pot) => pot.priority === 'essential' || pot.priority === 'everyday')
     .reduce((sum, pot) => sum + pot.allocation, 0);
-  const protectedTotal = categoryTotal + manualProtected;
-  const emergency = income > protectedTotal ? Math.min(state.emergencyFundContribution ?? 0, income - protectedTotal) : 0;
-  return protectedTotal + emergency;
+  return categoryTotal + manualProtected;
+}
+
+/** Emergency buffer that fits after protected needs in a month (same rule as calculatePlan). */
+function emergencyForMonth(state: FinancialState, referenceDate: Date, income: number): number {
+  const protectedTotal = protectedCommitmentsForMonth(state, referenceDate);
+  return income > protectedTotal ? Math.min(plannedEmergencyContribution(state), income - protectedTotal) : 0;
+}
+
+function commitmentsBeforeGoals(state: FinancialState, referenceDate: Date, income: number): number {
+  return protectedCommitmentsForMonth(state, referenceDate) + emergencyForMonth(state, referenceDate, income);
+}
+
+export interface EmergencyEarmark {
+  date: string;
+  incomeEventId: string;
+  amount: number;
+}
+
+/** Splits each month's emergency buffer across that month's paydays, in proportion to each payment. */
+export function emergencyEarmarkSchedule(state: FinancialState, from: Date, to: Date): EmergencyEarmark[] {
+  if (!plannedEmergencyContribution(state)) return [];
+  const earmarks: EmergencyEarmark[] = [];
+  for (let month = startOfMonth(from); !isAfter(month, startOfDay(to)); month = addMonths(month, 1)) {
+    const monthIncome = incomeEventsForRange(state, month, endOfMonth(month))
+      .filter((event) => event.amount > 0)
+      .sort((a, b) => a.date.localeCompare(b.date));
+    if (!monthIncome.length) continue;
+    const total = monthIncome.reduce((sum, income) => sum + income.amount, 0);
+    const shares = distributeAmount(emergencyForMonth(state, month, total), monthIncome);
+    monthIncome.forEach((income, index) => {
+      if (shares[index] > 0 && income.date >= isoDate(from) && income.date <= isoDate(to)) {
+        earmarks.push({ date: income.date, incomeEventId: income.id, amount: shares[index] });
+      }
+    });
+  }
+  return earmarks;
 }
 
 export function goalContributionSchedule(state: FinancialState, asOf = new Date()): GoalContributionSchedule {
@@ -346,7 +387,7 @@ export function calculatePlan(state: FinancialState, referenceDate = new Date())
   const protectedTotal = protectedPots.reduce((sum, pot) => sum + pot.requested, 0);
   let remaining = available - protectedTotal;
 
-  const emergencyRequested = available > protectedTotal ? clampMoney(state.emergencyFundContribution ?? 0) : 0;
+  const emergencyRequested = available > protectedTotal ? plannedEmergencyContribution(state) : 0;
   const emergencyAllocation = Math.min(emergencyRequested, Math.max(0, remaining));
   remaining -= emergencyAllocation;
   const emergencyPot: PlannedPot | undefined = emergencyRequested
@@ -357,7 +398,7 @@ export function calculatePlan(state: FinancialState, referenceDate = new Date())
         requested: emergencyRequested,
         priority: 'savings',
         colour: '#059669',
-        description: 'A small cushion for unexpected costs',
+        description: emergencyAllocation < emergencyRequested ? `Only ${formatMoney(emergencyAllocation)} of ${formatMoney(emergencyRequested)} fits this month` : 'Planned contribution for unexpected costs',
       }
     : undefined;
 
@@ -443,7 +484,7 @@ export function calculatePlan(state: FinancialState, referenceDate = new Date())
       id: 'covered',
       tone: 'positive',
       title: 'Your plan is balanced',
-      message: 'Known commitments are covered and every pound has a clear purpose.',
+      message: 'Your bills, needs and planned savings fit within your expected income.',
     });
   } else {
     notices.push({
@@ -502,9 +543,21 @@ function calendarEventsForRange(state: FinancialState, from: Date, to: Date): Fi
         detail: 'Recommended earmark from this payday — not recorded as saved yet',
       };
     });
+  const emergencyEvents: FinancialEvent[] = emergencyEarmarkSchedule(state, from, to)
+    .filter((entry) => entry.date >= isoDate(planningStart))
+    .map((entry) => ({
+      id: `emergency-${entry.incomeEventId}`,
+      date: entry.date,
+      type: 'goal' as const,
+      name: 'Emergency buffer planned contribution',
+      amount: entry.amount,
+      balanceImpact: 0,
+      sourceId: 'emergency',
+      detail: 'Earmarked from this payday — the money stays in your account',
+    }));
 
   const order: Record<FinancialEvent['type'], number> = { income: 0, allocation: 1, goal: 2, expense: 3, warning: 4 };
-  return [...incomes, ...goalEvents, ...expenses].sort(
+  return [...incomes, ...emergencyEvents, ...goalEvents, ...expenses].sort(
     (a, b) => compareAsc(parseDate(a.date), parseDate(b.date)) || order[a.type] - order[b.type],
   );
 }
@@ -568,8 +621,10 @@ export function dailyForecast(state: FinancialState, from: Date, to: Date): impo
   const anchor = state.balanceAsOf ? tryParseDate(state.balanceAsOf) : undefined;
   let running = state.currentBalance ?? undefined;
   const closings = new Map<string, { opening: number; closing: number }>();
+  let savingsEvents: FinancialEvent[] = [];
   if (anchor && running !== undefined && isAfter(end, anchor)) {
     const allEvents = calendarEvents(state, addDays(anchor, 1), end);
+    savingsEvents = allEvents.filter((event) => event.type === 'goal');
     const byDate = new Map<string, FinancialEvent[]>();
     for (const event of allEvents.filter((item) => item.type !== 'warning')) {
       const current = byDate.get(event.date) ?? [];
@@ -595,6 +650,7 @@ export function dailyForecast(state: FinancialState, from: Date, to: Date): impo
       date,
       openingBalance: known?.opening,
       closingBalance: known?.closing,
+      availableAfterPots: known ? potReserveFor(state, date, known.closing, savingsEvents) : undefined,
       income: events.filter((event) => event.type === 'income').reduce((sum, event) => sum + event.amount, 0),
       expenses: events.filter((event) => event.type === 'expense').reduce((sum, event) => sum + event.amount, 0),
       events,
@@ -603,27 +659,74 @@ export function dailyForecast(state: FinancialState, from: Date, to: Date): impo
   return days;
 }
 
+/** Days ahead searched for the next payday when working out what is still earmarked. */
+const NEXT_PAYDAY_SEARCH_DAYS = 400;
+
+export function potReserveUnavailableReason(state: FinancialState): string | undefined {
+  if (state.expenses.some((expense) => expense.schedule.kind === 'monthly_allowance')) {
+    return 'Ongoing allowances have no payment date, so what is left in them is not tracked.';
+  }
+  if (state.manualPots.length) {
+    return 'Custom Pots have no payment dates, so what is left in them is not tracked.';
+  }
+  return undefined;
+}
+
+/**
+ * Money still earmarked in Pots at the end of `date`:
+ * - bills: dated payments after `date` and before the next payday (already-paid ones are excluded);
+ * - savings: planned emergency and goal contributions earmarked since the known balance date.
+ * Earmarks never leave the account, so they are subtracted here only, never from the closing balance.
+ */
+function potReserveFor(state: FinancialState, date: string, closingBalance: number, savingsEvents: FinancialEvent[]): AvailableAfterPots {
+  const blocked = potReserveUnavailableReason(state);
+  if (blocked) return { status: 'unavailable', reason: blocked };
+  const day = parseDate(date);
+  const nextPayday = incomeEventsForRange(state, addDays(day, 1), addDays(day, NEXT_PAYDAY_SEARCH_DAYS))
+    .filter((event) => event.amount > 0)
+    .sort((a, b) => a.date.localeCompare(b.date))[0];
+  if (!nextPayday) return { status: 'unavailable', reason: 'No upcoming payday is scheduled, so Pot reserves cannot be worked out.' };
+  const lastBillDay = addDays(parseDate(nextPayday.date), -1);
+  const bills = isAfter(addDays(day, 1), lastBillDay) ? [] : expenseEventsForRange(state, addDays(day, 1), lastBillDay);
+  const savings = savingsEvents.filter((event) => event.date <= date && event.amount > 0);
+  const items: PotReserveItem[] = [
+    ...bills.sort((a, b) => a.date.localeCompare(b.date)).map((bill) => ({ name: bill.name, amount: bill.amount, kind: 'bill' as const, date: bill.date })),
+    ...mergeSavings(savings),
+  ];
+  const billsReserved = bills.reduce((sum, bill) => sum + bill.amount, 0);
+  const savingsEarmarked = savings.reduce((sum, event) => sum + event.amount, 0);
+  const reserved = billsReserved + savingsEarmarked;
+  return { status: 'available', amount: closingBalance - reserved, reserved, billsReserved, savingsEarmarked, items, nextPayday: nextPayday.date };
+}
+
+function mergeSavings(events: FinancialEvent[]): PotReserveItem[] {
+  const totals = new Map<string, PotReserveItem>();
+  for (const event of events) {
+    const name = event.name.replace(/ planned contribution$/, '');
+    const current = totals.get(name) ?? { name, amount: 0, kind: 'savings' as const };
+    totals.set(name, { ...current, amount: current.amount + event.amount });
+  }
+  return [...totals.values()];
+}
+
 export type AvailableToday =
-  | { status: 'available'; amount: number; balance: number; reserved: number; asOf: string }
+  | { status: 'available'; amount: number; balance: number; reserved: number; items: PotReserveItem[]; nextPayday: string; asOf: string }
   | { status: 'unavailable'; reason: string };
 
 export function calculateAvailableToday(state: FinancialState, referenceDate = new Date()): AvailableToday {
   if (state.currentBalance === null || !state.balanceAsOf || !tryParseDate(state.balanceAsOf)) {
     return { status: 'unavailable', reason: 'Add a current balance to calculate this safely.' };
   }
-  if (state.expenses.some((expense) => expense.schedule.kind === 'monthly_allowance')) {
-    return { status: 'unavailable', reason: 'Ongoing allowances do not track what has already been spent.' };
-  }
   const today = startOfDay(referenceDate);
   const anchor = parseDate(state.balanceAsOf);
   if (isAfter(anchor, today)) return { status: 'unavailable', reason: 'The known balance date is in the future.' };
   const todayForecast = dailyForecast(state, anchor, today).at(-1);
   const balance = todayForecast?.closingBalance;
-  if (balance === undefined) return { status: 'unavailable', reason: 'A reliable balance for today is not available.' };
-  const futureStart = addDays(today, 1);
-  const monthEnd = endOfMonth(today);
-  const reserved = isAfter(futureStart, monthEnd) ? 0 : expenseEventsForRange(state, futureStart, monthEnd).reduce((sum, event) => sum + event.amount, 0);
-  return { status: 'available', amount: balance - reserved, balance, reserved, asOf: isoDate(today) };
+  const afterPots = todayForecast?.availableAfterPots;
+  if (balance === undefined || !afterPots) return { status: 'unavailable', reason: 'A reliable balance for today is not available.' };
+  if (afterPots.status === 'unavailable') return afterPots;
+  // Same figure as the calendar's "Available after Pots" for today.
+  return { status: 'available', amount: afterPots.amount, balance, reserved: afterPots.reserved, items: afterPots.items, nextPayday: afterPots.nextPayday, asOf: isoDate(today) };
 }
 
 export function forecastNextDays(state: FinancialState, days = 45, from = new Date()): FinancialEvent[] {

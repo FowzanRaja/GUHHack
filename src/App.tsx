@@ -55,7 +55,9 @@ export default function App() {
           plan={plan}
           onNavigate={setActive}
           onLoadDemo={loadDemoWithConfirmation}
-          onSetAllocation={(id, value) => update((current) => ({ ...current, allocationOverrides: { ...current.allocationOverrides, [id]: value } }), 'Pot allocation updated.')}
+          onSetAllocation={(id, value) => update((current) => id === 'emergency'
+            ? { ...current, emergencyFundContribution: value, emergencyFundOrigin: 'customer', emergencyFundPaused: false }
+            : { ...current, allocationOverrides: { ...current.allocationOverrides, [id]: value } }, 'Pot allocation updated.')}
           onAddPot={(name, allocation) => update((current) => ({ ...current, manualPots: [...current.manualPots, { id: makeId('pot'), name, allocation, priority: 'flexible', colour: '#0f766e' }] }), `${name} Pot added.`)}
         />
       )}

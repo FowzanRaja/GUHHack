@@ -1,25 +1,24 @@
-import { useMemo, useState } from 'react';
+import { useMemo, useState, type ReactNode } from 'react';
 import { Cell, Pie, PieChart, ResponsiveContainer, Tooltip } from 'recharts';
 import {
   AlertTriangle,
   ArrowDownLeft,
   ArrowUpRight,
   CalendarClock,
-  CheckCircle2,
   ChevronRight,
   CirclePoundSterling,
   Edit3,
+  Landmark,
   Plus,
-  ShieldCheck,
   Sparkles,
   Target,
   WalletCards,
 } from 'lucide-react';
-import type { FinancialPlan, FinancialState, PlannedPot } from '../types';
-import { calculateAvailableToday, forecastNextDays } from '../lib/engine';
+import type { FinancialPlan, FinancialState, PlannedPot, PotReserveItem } from '../types';
+import { calculateAvailableToday, forecastNextDays, incomeEventsForRange } from '../lib/engine';
 import { formatMoney } from '../lib/money';
 import { parseDate, scheduleDates, tryParseDate } from '../lib/dates';
-import { endOfMonth, format, startOfMonth } from 'date-fns';
+import { addDays, endOfMonth, format, startOfMonth } from 'date-fns';
 import { Modal } from '../components/Modal';
 import { MoneyInput } from '../components/MoneyInput';
 import type { NavSection } from '../components/Layout';
@@ -47,6 +46,18 @@ export function Overview({ state, plan, onNavigate, onLoadDemo, onSetAllocation,
     return state.incomes.reduce((sum, income) => sum + income.amount * scheduleDates(income.schedule, startOfMonth(reference), endOfMonth(reference)).length, 0);
   }, [plan.month, state.incomes]);
   const temporaryIncomeChange = regularIncome !== plan.expectedIncome;
+  const nextPayday = useMemo(
+    () => incomeEventsForRange(state, new Date(), addDays(new Date(), 400)).filter((event) => event.amount > 0).sort((a, b) => a.date.localeCompare(b.date))[0],
+    [state],
+  );
+  const savingsPots = plan.pots.filter((pot) => pot.priority === 'savings' && pot.allocation > 0);
+  const savingsBreakdown = savingsPots.map((pot) => `${formatMoney(pot.allocation, { compact: true })} ${pot.id === 'emergency' ? 'emergency buffer' : pot.goalId ? `${pot.name.toLowerCase()} goal` : pot.name}`).join(' + ');
+  const balanceToday = availableToday.status === 'available' ? availableToday.balance : state.currentBalance;
+  const incomeDetail = temporaryIncomeChange
+    ? `Includes a one-off change · regular income ${formatMoney(regularIncome, { compact: true })}`
+    : nextPayday
+      ? `Next payday ${format(parseDate(nextPayday.date), 'd MMM')}: ${formatMoney(nextPayday.amount, { compact: true })}`
+      : 'No payday scheduled this month';
 
   if (!hasData) {
     return (
@@ -66,7 +77,7 @@ export function Overview({ state, plan, onNavigate, onLoadDemo, onSetAllocation,
     <div className="space-y-6 animate-enter">
       <div className="flex flex-col justify-between gap-4 sm:flex-row sm:items-end">
         <div>
-          <span className="eyebrow"><span className="status-dot" /> {state.isDemo ? 'Live demo plan' : 'Your monthly plan'}</span>
+          <span className="eyebrow"><span className="status-dot" /> Your monthly plan</span>
           <h1 className="page-title">Good {partOfDay()}, {state.customerName || 'there'}.</h1>
           <p className="page-subtitle">Here’s how your money is organised for {format(new Date(`${plan.month}-01T12:00:00`), 'MMMM')}.</p>
         </div>
@@ -74,19 +85,23 @@ export function Overview({ state, plan, onNavigate, onLoadDemo, onSetAllocation,
       </div>
 
       <section className="grid gap-4 sm:grid-cols-2 xl:grid-cols-4" aria-label="Financial summary">
-        <SummaryCard icon={CirclePoundSterling} label="Expected income" value={formatMoney(plan.expectedIncome, { compact: true })} detail={temporaryIncomeChange ? `Regular schedule ${formatMoney(regularIncome, { compact: true })} · temporary adjustment applied` : 'This calendar month'} tone="purple" />
-        <SummaryCard icon={ShieldCheck} label="Essential commitments" value={formatMoney(plan.essentialCommitments, { compact: true })} detail={`${plan.expectedIncome ? Math.round((plan.essentialCommitments / plan.expectedIncome) * 100) : 0}% of income`} tone="blue" />
-        <SummaryCard icon={Target} label="Saving this month" value={formatMoney(plan.savingsAllocated, { compact: true })} detail={`${state.goals.length} active goal${state.goals.length === 1 ? '' : 's'}`} tone="green" />
-        <SummaryCard icon={WalletCards} label="Flexible spending" value={formatMoney(plan.flexibleSpending, { compact: true })} detail="After known priorities" tone="pink" />
+        <SummaryCard icon={CirclePoundSterling} label="Expected income this month" value={formatMoney(plan.expectedIncome, { compact: true })} detail={incomeDetail} tone="purple" />
+        <SummaryCard
+          icon={Target}
+          label="Planned savings this month"
+          value={formatMoney(plan.savingsAllocated, { compact: true })}
+          detail={savingsPots.length ? <><span className="block">{savingsBreakdown}</span><span className="block text-slate-400">Planned contributions, not yet saved</span></> : 'No savings contributions planned this month'}
+          tone="green"
+        />
+        <SummaryCard icon={WalletCards} label="Flexible spending" value={formatMoney(plan.flexibleSpending, { compact: true })} detail="Left for you after bills, needs and savings" tone="pink" />
+        <SummaryCard icon={Landmark} label="Balance today" value={balanceToday === null ? 'Not added' : formatMoney(balanceToday, { compact: true })} detail={balanceToday === null ? 'Add your balance in Cora to see what you can spend' : 'Projected from the balance you entered'} tone="blue" />
       </section>
 
       {plan.shortfall > 0 ? (
         <div className="notice notice-danger" role="alert"><AlertTriangle aria-hidden="true" /><div><strong>There’s a {formatMoney(plan.shortfall)} shortfall.</strong><p>Your known essentials and everyday needs cost more than this month’s available income. Cora has not hidden or reduced them.</p></div><button onClick={() => onNavigate('cora')}>Review options</button></div>
       ) : plan.notices.some((notice) => notice.id === 'goal-pressure') ? (
         <div className="notice border-amber-200 bg-amber-50 text-amber-950" role="status"><AlertTriangle aria-hidden="true" /><div><strong>A goal deadline needs attention.</strong><p>Known commitments are covered, but the affordable savings contribution is below the amount needed to stay on schedule.</p></div><button onClick={() => onNavigate('cora')}>Review goal</button></div>
-      ) : (
-        <div className="notice notice-positive" role="status"><CheckCircle2 aria-hidden="true" /><div><strong>Your known commitments are covered.</strong><p>Every pound in this plan has a purpose, and you can change any flexible Pot.</p></div></div>
-      )}
+      ) : null}
 
       <section className="grid gap-6 xl:grid-cols-[minmax(0,1.5fr)_minmax(340px,0.7fr)]">
         <article className="card card-roomy overflow-hidden">
@@ -115,15 +130,17 @@ export function Overview({ state, plan, onNavigate, onLoadDemo, onSetAllocation,
                   <Edit3 size={15} className="text-slate-400" aria-hidden="true" />
                 </button>
               ))}
-              {plan.unallocated > 0 && <div className="pot-row"><span className="pot-swatch bg-slate-400" aria-hidden="true" /><span className="min-w-0 flex-1"><span className="block text-sm font-semibold text-slate-900">Unallocated</span><span className="block text-xs text-slate-500">Not yet assigned to a Pot</span></span><span className="text-right"><span className="block text-sm font-bold text-cora-950">{formatMoney(plan.unallocated, { compact: true })}</span><span className="text-[11px] font-semibold uppercase tracking-wide text-slate-400">{plan.expectedIncome ? Math.round((plan.unallocated / plan.expectedIncome) * 100) : 0}%</span></span></div>}
+              {plan.unallocated > 0 && <div className="pot-row"><span className="pot-swatch bg-slate-400" aria-hidden="true" /><span className="min-w-0 flex-1"><span className="block text-sm font-semibold text-slate-900">Money left to assign</span><span className="block text-xs text-slate-500">Not yet given a purpose</span></span><span className="text-right"><span className="block text-sm font-bold text-cora-950">{formatMoney(plan.unallocated, { compact: true })}</span><span className="text-[11px] font-semibold uppercase tracking-wide text-slate-400">{plan.expectedIncome ? Math.round((plan.unallocated / plan.expectedIncome) * 100) : 0}%</span></span></div>}
             </div>
           </div>
-          <div className="mt-6 grid gap-2 sm:grid-cols-2 lg:grid-cols-5" aria-label="Smart Pots allocation totals">
-            <PlanFigure label="Monthly income" value={formatMoney(plan.expectedIncome)} />
-            <PlanFigure label="Allocated" value={formatMoney(plan.totalAllocated)} />
-            <PlanFigure label="Unallocated" value={formatMoney(plan.unallocated)} />
-            <PlanFigure label="Balance today" value={state.currentBalance === null ? 'Unavailable' : formatMoney(state.currentBalance)} />
-            <PlanFigure label="Available to spend" value={availableToday.status === 'available' ? formatMoney(availableToday.amount) : 'Unavailable'} detail={availableToday.status === 'available' ? `${formatMoney(availableToday.reserved)} still reserved` : availableToday.reason} warning={availableToday.status === 'available' && availableToday.amount < 0} />
+          <div className={`mt-6 grid gap-2 ${plan.unallocated > 0 ? 'sm:grid-cols-2' : ''}`} aria-label="What you can spend">
+            <PlanFigure
+              label="Available to spend today"
+              value={availableToday.status === 'available' ? formatMoney(availableToday.amount) : 'Unavailable'}
+              detail={availableToday.status === 'available' ? <ReserveSummary items={availableToday.items} reserved={availableToday.reserved} nextPayday={availableToday.nextPayday} /> : availableToday.reason}
+              warning={availableToday.status === 'available' && availableToday.amount < 0}
+            />
+            {plan.unallocated > 0 && <PlanFigure label="Money left to assign" value={formatMoney(plan.unallocated)} detail="Give it a purpose by editing a Pot or asking Cora" />}
           </div>
         </article>
 
@@ -177,7 +194,7 @@ export function Overview({ state, plan, onNavigate, onLoadDemo, onSetAllocation,
 function AllocationChart({ plan }: { plan: FinancialPlan }) {
   const data = [
     ...plan.pots.filter((pot) => pot.allocation > 0).map((pot) => ({ name: pot.name, value: pot.allocation, colour: pot.colour })),
-    ...(plan.unallocated > 0 ? [{ name: 'Unallocated', value: plan.unallocated, colour: '#94a3b8' }] : []),
+    ...(plan.unallocated > 0 ? [{ name: 'Money left to assign', value: plan.unallocated, colour: '#94a3b8' }] : []),
   ];
   return (
     <div className="relative h-[290px]" role="img" aria-label={`Allocation chart. ${data.map((item) => `${item.name}: ${formatMoney(item.value)}`).join(', ')}`}>
@@ -190,23 +207,37 @@ function AllocationChart({ plan }: { plan: FinancialPlan }) {
         </PieChart>
       </ResponsiveContainer>
       <div className="pointer-events-none absolute inset-0 grid place-items-center text-center">
-        <div><span className="block text-xs font-semibold uppercase tracking-wider text-slate-500">Allocated</span><strong className="mt-1 block text-2xl text-cora-950">{formatMoney(plan.totalAllocated, { compact: true })}</strong><span className="text-xs text-slate-500">{formatMoney(plan.unallocated, { compact: true })} unallocated</span></div>
+        <div><span className="block text-xs font-semibold uppercase tracking-wider text-slate-500">In your Pots</span><strong className="mt-1 block text-2xl text-cora-950">{formatMoney(plan.totalAllocated, { compact: true })}</strong><span className="text-xs text-slate-500">{plan.unallocated > 0 ? `${formatMoney(plan.unallocated, { compact: true })} left to assign` : 'this month'}</span></div>
       </div>
     </div>
   );
 }
 
-function PlanFigure({ label, value, detail, warning = false }: { label: string; value: string; detail?: string; warning?: boolean }) {
-  return <div className={`rounded-2xl border p-3 ${warning ? 'border-red-200 bg-red-50' : 'border-cora-100 bg-cora-50'}`}><span className="block text-[10px] font-bold uppercase tracking-wider text-slate-500">{label}</span><strong className={`mt-1 block text-sm ${warning ? 'text-red-800' : 'text-cora-950'}`}>{value}</strong>{detail && <small className="mt-1 block text-[10px] leading-4 text-slate-500">{detail}</small>}</div>;
+function PlanFigure({ label, value, detail, warning = false }: { label: string; value: string; detail?: ReactNode; warning?: boolean }) {
+  return <div className={`rounded-2xl border p-4 ${warning ? 'border-red-200 bg-red-50' : 'border-cora-100 bg-cora-50'}`}><span className="block text-[11px] font-bold uppercase tracking-wider text-slate-500">{label}</span><strong className={`mt-1 block text-xl ${warning ? 'text-red-800' : 'text-cora-950'}`}>{value}</strong>{detail && <div className="mt-1 text-xs leading-5 text-slate-600">{detail}</div>}</div>;
 }
 
-function SummaryCard({ icon: Icon, label, value, detail, tone }: { icon: typeof CirclePoundSterling; label: string; value: string; detail: string; tone: string }) {
+/** Explains exactly what is held back from today's balance. */
+function ReserveSummary({ items, reserved, nextPayday }: { items: PotReserveItem[]; reserved: number; nextPayday: string }) {
+  const payday = format(parseDate(nextPayday), 'd MMM');
+  if (!items.length) return <>Nothing is reserved for bills before your next payday on {payday}.</>;
+  const describe = (item: PotReserveItem) => item.kind === 'bill' && item.date ? `${item.name} (${format(parseDate(item.date), 'd MMM')})` : `${item.name} Pot`;
+  if (items.length === 1) return <>{formatMoney(reserved)} reserved for your upcoming {describe(items[0])}.</>;
+  return (
+    <details>
+      <summary className="cursor-pointer rounded focus-ring">{formatMoney(reserved)} reserved for {items.length} upcoming payments and Pots before {payday}</summary>
+      <ul className="mt-1 space-y-0.5">{items.map((item) => <li key={`${item.kind}-${item.name}-${item.date ?? ''}`} className="flex justify-between gap-3"><span>{describe(item)}</span><span className="font-semibold">{formatMoney(item.amount)}</span></li>)}</ul>
+    </details>
+  );
+}
+
+function SummaryCard({ icon: Icon, label, value, detail, tone }: { icon: typeof CirclePoundSterling; label: string; value: string; detail: ReactNode; tone: string }) {
   return (
     <article className="summary-card">
       <div className={`summary-icon summary-${tone}`}><Icon size={19} aria-hidden="true" /></div>
       <p className="mt-4 text-xs font-semibold uppercase tracking-wider text-slate-500">{label}</p>
       <p className="mt-1 text-2xl font-bold tracking-tight text-cora-950">{value}</p>
-      <p className="mt-1 text-xs text-slate-500">{detail}</p>
+      <div className="mt-1 text-xs leading-5 text-slate-500">{detail}</div>
     </article>
   );
 }

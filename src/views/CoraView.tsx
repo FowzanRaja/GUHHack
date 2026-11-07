@@ -2,15 +2,20 @@ import { useEffect, useRef, useState } from 'react';
 import { addDays, format } from 'date-fns';
 import {
   AlertCircle,
+  ArrowDownLeft,
+  ArrowUpRight,
   Bot,
   Check,
   ChevronRight,
   Edit3,
   Loader2,
   MessageCircleMore,
+  Pause,
+  Play,
   Plus,
   Send,
   Settings2,
+  ShieldCheck,
   Sparkles,
   Trash2,
   UserRound,
@@ -30,7 +35,7 @@ import { answerInformationRequest, boundedHistory } from '../lib/information';
 import { MoneyInput } from '../components/MoneyInput';
 import { Modal } from '../components/Modal';
 import { SavingsGoalsSection } from './GoalsView';
-import { incomeEventsForRange } from '../lib/engine';
+import { calculatePlan, incomeEventsForRange } from '../lib/engine';
 
 type FinancialStateUpdate = FinancialState | ((current: FinancialState) => FinancialState);
 
@@ -49,6 +54,7 @@ export function CoraView({ state, onStateChange, onSaveGoal, onDeleteGoal }: Cor
   const [preview, setPreview] = useState<ActionPreview | null>(() => state.conversation.proposal ? previewAssistantAction(state, state.conversation.proposal) : null);
   const [entryEditor, setEntryEditor] = useState<{ type: 'income' | 'expense'; item?: IncomeSource | Expense } | null>(null);
   const [balanceDraft, setBalanceDraft] = useState<number | null>(state.currentBalance);
+  const [emergencyEditing, setEmergencyEditing] = useState(false);
   const bottomRef = useRef<HTMLDivElement>(null);
   const textareaRef = useRef<HTMLTextAreaElement>(null);
   const composingRef = useRef(false);
@@ -244,14 +250,24 @@ export function CoraView({ state, onStateChange, onSaveGoal, onDeleteGoal }: Cor
           </div>
 
           <ManualSection title="Income" addLabel="Add income" onAdd={() => setEntryEditor({ type: 'income' })}>
-            {state.incomes.map((income) => <ManualRow key={income.id} name={income.name} amount={income.amount} detail={incomeScheduleLabel(state, income)} onEdit={() => setEntryEditor({ type: 'income', item: income })} onDelete={() => deleteEntry('income', income)} />)}
+            {state.incomes.map((income) => <ManualRow key={income.id} kind="income" name={income.name} amount={income.amount} detail={incomeScheduleLabel(state, income)} onEdit={() => setEntryEditor({ type: 'income', item: income })} onDelete={() => deleteEntry('income', income)} />)}
             {!state.incomes.length && <EmptyRow text="No income added yet" />}
           </ManualSection>
 
           <ManualSection title="Regular costs" addLabel="Add cost" onAdd={() => setEntryEditor({ type: 'expense' })}>
-            {state.expenses.map((expense) => <ManualRow key={expense.id} name={expense.name} amount={expense.amount} detail={`${scheduleLabel(expense.schedule)}${expense.essential ? ' · Essential' : ''}`} onEdit={() => setEntryEditor({ type: 'expense', item: expense })} onDelete={() => deleteEntry('expense', expense)} />)}
+            {state.expenses.map((expense) => <ManualRow key={expense.id} kind="expense" name={expense.name} amount={expense.amount} detail={`${scheduleLabel(expense.schedule)}${expense.essential ? ' · Essential' : ''}`} onEdit={() => setEntryEditor({ type: 'expense', item: expense })} onDelete={() => deleteEntry('expense', expense)} />)}
             {!state.expenses.length && <EmptyRow text="No costs added yet" />}
           </ManualSection>
+
+          <EmergencyBufferSection
+            state={state}
+            onEdit={() => setEmergencyEditing(true)}
+            onTogglePause={() => onStateChange((current) => ({
+              ...current,
+              emergencyFundPaused: !current.emergencyFundPaused,
+              emergencyFundOrigin: current.emergencyFundPaused ? 'customer' : current.emergencyFundOrigin,
+            }), state.emergencyFundPaused ? 'Emergency buffer contributions resumed.' : 'Emergency buffer contributions paused.')}
+          />
 
           <div className="mt-6 rounded-2xl border border-cora-100 bg-white p-4 text-xs leading-5 text-slate-600"><strong className="block text-cora-950">You stay in control</strong>Cora proposes changes. The calculation engine checks them, and nothing is saved until you confirm.</div>
         </aside>
@@ -261,6 +277,16 @@ export function CoraView({ state, onStateChange, onSaveGoal, onDeleteGoal }: Cor
         <SavingsGoalsSection state={state} onSave={onSaveGoal} onDelete={onDeleteGoal} onAskCora={() => { textareaRef.current?.focus(); window.scrollTo({ top: 0, behavior: 'smooth' }); }} embedded />
       </section>
 
+      {emergencyEditing && (
+        <EmergencyModal
+          current={state.emergencyFundContribution ?? 0}
+          onClose={() => setEmergencyEditing(false)}
+          onSave={(value) => {
+            onStateChange((current) => ({ ...current, emergencyFundContribution: value, emergencyFundOrigin: 'customer', emergencyFundPaused: false }), value ? `Emergency buffer set to ${formatMoney(value)} a month.` : 'Emergency buffer contribution set to £0.');
+            setEmergencyEditing(false);
+          }}
+        />
+      )}
       {entryEditor && <EntryModal type={entryEditor.type} item={entryEditor.item} onClose={() => setEntryEditor(null)} onSave={saveEntry} onDelete={entryEditor.item ? () => deleteEntry(entryEditor.type, entryEditor.item!) : undefined} />}
     </div>
   );
@@ -279,8 +305,8 @@ function ChatBubble({ message }: { message: ChatMessage }) {
 
 function ProposalCard({ preview, onApply, onDismiss }: { preview: ActionPreview; onApply: () => void; onDismiss: () => void }) {
   const figures = [
-    ['Income', preview.beforePlan.expectedIncome, preview.afterPlan.expectedIncome],
-    ['Savings', preview.beforePlan.savingsAllocated, preview.afterPlan.savingsAllocated],
+    ['Income this month', preview.beforePlan.expectedIncome, preview.afterPlan.expectedIncome],
+    ['Planned savings', preview.beforePlan.savingsAllocated, preview.afterPlan.savingsAllocated],
     ['Flexible', preview.beforePlan.flexibleSpending, preview.afterPlan.flexibleSpending],
     ['Shortfall', preview.beforePlan.shortfall, preview.afterPlan.shortfall],
   ];
@@ -307,8 +333,8 @@ function ManualSection({ title, addLabel, onAdd, children }: { title: string; ad
   return <section className="mt-6"><div className="mb-2 flex items-center justify-between"><h3 className="text-sm font-bold text-cora-950">{title}</h3><button onClick={onAdd} className="flex items-center gap-1 text-xs font-semibold text-cora-700 hover:text-cora-900 focus-ring"><Plus size={14} />{addLabel}</button></div><div className="divide-y divide-slate-100">{children}</div></section>;
 }
 
-function ManualRow({ name, amount, detail, onEdit, onDelete }: { name: string; amount: number; detail: string; onEdit: () => void; onDelete: () => void }) {
-  return <div className="group flex items-center gap-2 py-3"><div className="min-w-0 flex-1"><p className="truncate text-sm font-semibold text-slate-900">{name}</p><p className="truncate text-xs text-slate-500">{detail}</p></div><strong className="text-sm text-cora-950">{formatMoney(amount, { compact: true })}</strong><button onClick={onEdit} className="manual-action focus-ring" aria-label={`Edit ${name}`}><Edit3 size={14} /></button><button onClick={onDelete} className="manual-action manual-delete focus-ring" aria-label={`Delete ${name}`}><Trash2 size={14} /></button></div>;
+function ManualRow({ kind, name, amount, detail, onEdit, onDelete }: { kind: 'income' | 'expense'; name: string; amount: number; detail: string; onEdit: () => void; onDelete: () => void }) {
+  return <div className="group flex items-center gap-2 py-3"><div className="min-w-0 flex-1"><p className="truncate text-sm font-semibold text-slate-900">{name}</p><p className="mt-1 flex min-w-0 items-center gap-1.5 text-xs text-slate-500">{kind === 'income' ? <span className="money-pill money-pill-in"><ArrowDownLeft size={11} aria-hidden="true" />Income</span> : <span className="money-pill money-pill-out"><ArrowUpRight size={11} aria-hidden="true" />Cost</span>}<span className="truncate">{detail}</span></p></div><strong className="text-sm text-cora-950">{formatMoney(amount, { compact: true })}</strong><button onClick={onEdit} className="manual-action focus-ring" aria-label={`Edit ${name}`}><Edit3 size={14} /></button><button onClick={onDelete} className="manual-action manual-delete focus-ring" aria-label={`Delete ${name}`}><Trash2 size={14} /></button></div>;
 }
 
 function EmptyRow({ text }: { text: string }) { return <p className="rounded-xl border border-dashed border-slate-200 py-4 text-center text-xs text-slate-500">{text}</p>; }
@@ -324,9 +350,63 @@ function scheduleLabel(schedule: Schedule): string {
 
 function incomeScheduleLabel(state: FinancialState, income: IncomeSource): string {
   const next = incomeEventsForRange(state, new Date(), addDays(new Date(), 400)).filter((event) => event.sourceId === income.id).sort((a, b) => a.date.localeCompare(b.date))[0];
-  const nextLabel = next ? ` · Next ${format(new Date(`${next.date}T12:00:00`), 'd MMM')}: ${formatMoney(next.amount, { compact: true })}` : '';
-  const temporary = next && next.amount !== income.amount ? ' temporary' : '';
-  return `${scheduleLabel(income.schedule)} · Regular ${formatMoney(income.amount, { compact: true })}${nextLabel}${temporary}`;
+  if (!next) return scheduleLabel(income.schedule);
+  const nextDate = format(new Date(`${next.date}T12:00:00`), 'd MMM');
+  return next.amount !== income.amount
+    ? `${scheduleLabel(income.schedule)} · Next payday ${nextDate}: ${formatMoney(next.amount, { compact: true })} (one-off change)`
+    : `${scheduleLabel(income.schedule)} · Next payday ${nextDate}`;
+}
+
+const EMERGENCY_ORIGIN_LABEL: Record<NonNullable<FinancialState['emergencyFundOrigin']>, string> = {
+  customer: 'Chosen by you',
+  cora: 'Recommended by Cora · approved by you',
+  existing: 'Existing planned contribution · please review',
+};
+
+function EmergencyBufferSection({ state, onEdit, onTogglePause }: { state: FinancialState; onEdit: () => void; onTogglePause: () => void }) {
+  const plan = calculatePlan(state);
+  const pot = plan.pots.find((item) => item.id === 'emergency');
+  const amount = state.emergencyFundContribution ?? 0;
+  const paused = Boolean(state.emergencyFundPaused) && amount > 0;
+  const origin = state.emergencyFundOrigin ?? 'existing';
+  return (
+    <section className="mt-6" aria-labelledby="emergency-buffer-title">
+      <div className="mb-2 flex items-center justify-between">
+        <h3 id="emergency-buffer-title" className="text-sm font-bold text-cora-950">Emergency buffer</h3>
+        <button onClick={onEdit} className="flex items-center gap-1 text-xs font-semibold text-cora-700 hover:text-cora-900 focus-ring">{amount ? <><Edit3 size={14} />Edit</> : <><Plus size={14} />Set up</>}</button>
+      </div>
+      {amount > 0 ? (
+        <div className="rounded-2xl border border-emerald-100 bg-emerald-50/60 p-3">
+          <div className="flex items-start gap-3">
+            <span className="grid h-9 w-9 shrink-0 place-items-center rounded-xl bg-white text-emerald-700"><ShieldCheck size={17} aria-hidden="true" /></span>
+            <div className="min-w-0 flex-1">
+              <p className="text-sm font-semibold text-slate-900">{formatMoney(amount, { compact: true })} a month{paused ? ' · paused' : ''}</p>
+              <p className="text-xs text-slate-600">{paused ? 'Nothing is planned while paused. Your amount is kept.' : 'Monthly, set aside from your pay on payday'}</p>
+              <p className="mt-1.5 inline-flex rounded-full bg-white px-2 py-0.5 text-[11px] font-semibold text-emerald-800">{EMERGENCY_ORIGIN_LABEL[origin]}</p>
+              {!paused && pot && pot.allocation < pot.requested && <p className="mt-1.5 text-xs text-amber-800">Only {formatMoney(pot.allocation)} fits this month after your essentials.</p>}
+              {!paused && !pot && <p className="mt-1.5 text-xs text-amber-800">This doesn’t fit this month after your essentials, so nothing is planned.</p>}
+            </div>
+          </div>
+          <div className="mt-3 flex justify-end gap-2 border-t border-emerald-100 pt-3">
+            <button onClick={onTogglePause} className="button-secondary button-small focus-ring">{paused ? <><Play size={14} aria-hidden="true" />Resume</> : <><Pause size={14} aria-hidden="true" />Pause</>}</button>
+            <button onClick={onEdit} className="button-primary button-small focus-ring"><Edit3 size={14} aria-hidden="true" />Change amount</button>
+          </div>
+        </div>
+      ) : (
+        <p className="rounded-xl border border-dashed border-slate-200 px-3 py-4 text-center text-xs leading-5 text-slate-500">No emergency buffer planned. Set an amount yourself, or ask Cora for a suggestion — nothing is added until you confirm.</p>
+      )}
+    </section>
+  );
+}
+
+function EmergencyModal({ current, onClose, onSave }: { current: number; onClose: () => void; onSave: (value: number) => void }) {
+  const [value, setValue] = useState(current);
+  return (
+    <Modal title="Emergency buffer" description="How much would you like to set aside each month for unexpected costs? Any amount from £0 is fine. Your bills and everyday needs are always covered first." onClose={onClose}>
+      <MoneyInput id="emergency-amount" label="Monthly contribution" value={value} onChange={(next) => setValue(Math.max(0, next))} hint="This updates your Pots, planned savings and calendar." />
+      <div className="modal-actions"><button onClick={onClose} className="button-secondary focus-ring">Cancel</button><button onClick={() => onSave(Math.max(0, Math.round(value)))} className="button-primary focus-ring">Save amount</button></div>
+    </Modal>
+  );
 }
 
 function EntryModal({ type, item, onClose, onSave, onDelete }: { type: 'income' | 'expense'; item?: IncomeSource | Expense; onClose: () => void; onSave: (item: IncomeSource | Expense) => void; onDelete?: () => void }) {

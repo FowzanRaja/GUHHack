@@ -66,17 +66,22 @@ export function previewAssistantAction(state: FinancialState, action: AssistantA
         nextState.currentBalance = action.currentBalance;
         nextState.balanceAsOf = isoDate(now);
       }
-      if (action.emergencyFundContribution !== undefined) nextState.emergencyFundContribution = action.emergencyFundContribution;
+      if (action.emergencyFundContribution !== undefined) {
+        // Applying the proposal is the customer's approval of Cora's recommendation.
+        nextState.emergencyFundContribution = action.emergencyFundContribution;
+        nextState.emergencyFundOrigin = 'cora';
+        nextState.emergencyFundPaused = false;
+      }
       title = action.profileMode === 'merge' ? 'Add these details to your plan' : 'Here’s the plan Cora understood';
       explanation = action.profileMode === 'replace'
         ? 'This will replace the income and regular costs in the current profile after you confirm. Existing goals are preserved unless they are included in the proposed profile.'
         : 'This is the plan Cora will create from the details you provided. Nothing is saved until you confirm.';
       showBeforeAfter = false;
       changes = [
-        `${action.incomes.length} income source${action.incomes.length === 1 ? '' : 's'}`,
-        `${action.expenses.length} regular cost${action.expenses.length === 1 ? '' : 's'}`,
+        ...(action.incomes.length || action.profileMode !== 'merge' ? [`${action.incomes.length} income source${action.incomes.length === 1 ? '' : 's'}`] : []),
+        ...(action.expenses.length || action.profileMode !== 'merge' ? [`${action.expenses.length} regular cost${action.expenses.length === 1 ? '' : 's'}`] : []),
         ...(action.goals ? [`${action.goals.length} savings goal${action.goals.length === 1 ? '' : 's'}`] : []),
-        ...(action.emergencyFundContribution !== undefined ? [`${formatMoney(action.emergencyFundContribution)} emergency fund contribution`] : []),
+        ...(action.emergencyFundContribution !== undefined ? [`Recommended by Cora: ${formatMoney(action.emergencyFundContribution)} a month into an emergency buffer (only added if you apply)`] : []),
         ...(action.missingInformation?.map((item) => `Optional detail: ${item}`) ?? []),
       ];
       break;

@@ -4,11 +4,10 @@
 @tailwind utilities;
 
 @layer base {
-  :root { color: #172033; background: #f7f5f8; font-synthesis: none; }
+  :root { color: #172033; background: #f7f5f8; color-scheme: light; font-synthesis: none; }
   * { box-sizing: border-box; }
   html { scroll-behavior: smooth; }
   body { @apply m-0 min-w-[320px] bg-[#f7f5f8] font-sans text-slate-800 antialiased; }
-  .dark body { background: #0d0915; color: #e8e2ef; }
   button, input, select, textarea { font: inherit; }
   button { -webkit-tap-highlight-color: transparent; }
   ::selection { @apply bg-cora-200 text-cora-950; }
@@ -107,6 +106,7 @@
   .day-figure-income { @apply bg-emerald-50 text-emerald-900; }
   .day-figure-expense { @apply bg-cora-50 text-cora-950; }
   .day-figure-balance { @apply bg-blue-50 text-blue-950; }
+  .day-figure-pots { @apply bg-slate-50 text-slate-900 ring-1 ring-inset ring-slate-200; }
   .day-figure-warning { @apply bg-red-50 text-red-900; }
 
   .goal-summary-card { @apply rounded-2xl border border-slate-200/80 bg-white p-5 shadow-card; }
@@ -144,77 +144,14 @@
   .proposal-card { @apply ml-0 rounded-2xl border border-cora-200 bg-white p-4 shadow-soft sm:ml-9 sm:p-5; }
   .proposal-figure { @apply rounded-xl bg-slate-50 p-2.5; }.proposal-figure span { @apply block text-[9px] font-bold uppercase tracking-wider text-slate-500; }.proposal-figure strong { @apply mt-1 block text-sm text-cora-950; }.proposal-figure small { @apply mt-0.5 block text-[9px] text-slate-400; }
   .proposal-figure-changed { @apply bg-cora-50 ring-1 ring-cora-200; }
+  .money-pill { @apply inline-flex shrink-0 items-center gap-0.5 rounded-full px-1.5 py-0.5 text-[10px] font-bold leading-none; }
+  .money-pill-in { @apply bg-emerald-100 text-emerald-900; }
+  .money-pill-out { @apply bg-cora-100 text-cora-900; }
   .manual-action { @apply rounded-lg p-1.5 text-slate-400 opacity-100 hover:bg-slate-100 hover:text-cora-800 sm:opacity-0 sm:group-hover:opacity-100 sm:focus:opacity-100; }.manual-delete:hover { @apply bg-red-50 text-red-600; }
 }
 
 .animate-enter { animation: enter .34s ease-out both; }
 @keyframes enter { from { opacity: 0; transform: translateY(6px); } to { opacity: 1; transform: translateY(0); } }
-
-.dark main { color: #e8e2ef; }
-.dark .card,
-.dark .summary-card,
-.dark .month-stat,
-.dark .goal-summary-card,
-.dark .goal-card,
-.dark .chat-shell,
-.dark .modal-panel { background: #181124; border-color: #3b2c4d; box-shadow: 0 8px 30px rgba(0,0,0,.24); }
-.dark .chat-messages { background: linear-gradient(to bottom, rgba(59,10,87,.36), #181124); }
-.dark .chat-bubble-assistant,
-.dark .proposal-card,
-.dark .chat-composer-wrap { background: #20172c; border-color: #3b2c4d; color: #e8e2ef; }
-.dark .chat-composer { background: #120c1c; border-color: #4c3a60; }
-.dark .text-input,
-.dark .money-input-wrap { background: #120c1c; border-color: #4c3a60; color: #cfc4da; }
-.dark .money-input,
-.dark .chat-composer textarea { color: #f6f1fa; }
-.dark .button-secondary { background: #21162e; border-color: #5c4172; color: #e9dff2; }
-.dark .button-quiet,
-.dark .round-link,
-.dark .calendar-nav { background: #291a39; color: #d8bce9; }
-.dark .nav-button-active,
-.dark .header-action,
-.dark .button-on-dark { background: white !important; color: #27043d !important; }
-.dark .brand-logo { background: white !important; }
-.dark .text-cora-950,
-.dark .text-slate-900,
-.dark .text-slate-800,
-.dark .text-slate-700 { color: #f3edf7 !important; }
-.dark .text-slate-600,
-.dark .text-slate-500,
-.dark .text-slate-400 { color: #b7a9c4 !important; }
-.dark .page-title,
-.dark .section-title { color: #f7f2fa; }
-.dark .page-subtitle,
-.dark .section-subtitle { color: #b7a9c4; }
-.dark .eyebrow { color: #d8b4ef; }
-.dark .bg-white { background-color: #181124; }
-.dark .bg-cora-50,
-.dark .bg-cora-50\/60,
-.dark .bg-cora-50\/40,
-.dark .bg-slate-50,
-.dark .bg-slate-50\/70,
-.dark .bg-slate-50\/50 { background-color: #21162e; }
-.dark .border-slate-100,
-.dark .border-slate-200,
-.dark .border-slate-200\/80,
-.dark .border-cora-100 { border-color: #3b2c4d; }
-.dark .divide-slate-100 > :not([hidden]) ~ :not([hidden]) { border-color: #3b2c4d; }
-.dark .calendar-day { border-color: #35283f; }
-.dark .calendar-day:hover,
-.dark .calendar-day-muted { background: #120c1c; }
-.dark .calendar-day-muted { color: #665772; }
-.dark .calendar-event-expense { background: #4a2860; color: #f0e3f6; }
-.dark .calendar-event-allocation { background: #182b4b; color: #dbeafe; }
-.dark .day-event,
-.dark .goal-detail,
-.dark .proposal-figure { background: #20172c; border-color: #3b2c4d; }
-.dark .day-event-icon { background: #2d203b; }
-.dark .goal-progress-ring::before { background: #181124; }
-.dark .add-goal-card { background: #21162e; border-color: #5c4172; color: #d8b4ef; }
-.dark nav.bg-white\/95 { background: rgba(24,17,36,.96); border-color: #3b2c4d; }
-.dark footer { border-color: #3b2c4d; }
-.dark .recharts-default-tooltip { background: #21162e !important; border-color: #5c4172 !important; color: #f3edf7 !important; }
-.dark .focus-ring:focus-visible { --tw-ring-offset-color: #0d0915; }
 
 @media (prefers-reduced-motion: reduce) {
   *, *::before, *::after { scroll-behavior: auto !important; animation-duration: .01ms !important; animation-iteration-count: 1 !important; transition-duration: .01ms !important; }

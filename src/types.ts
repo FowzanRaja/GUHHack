@@ -71,11 +71,17 @@ export interface FinancialState {
   incomeOverrides: IncomeOverride[];
   allocationOverrides: Record<string, Money>;
   emergencyFundContribution: Money | null;
+  /** Where the emergency contribution came from. Only 'customer' and 'cora' (approved) are explicit choices. */
+  emergencyFundOrigin?: EmergencyFundOrigin;
+  /** Paused keeps the saved amount but plans no contribution. */
+  emergencyFundPaused?: boolean;
   conversation: ConversationState;
   simplifiedMode: boolean;
   isDemo: boolean;
   lastUpdated: string;
 }
+
+export type EmergencyFundOrigin = 'customer' | 'cora' | 'existing';
 
 export type PotPriority = 'essential' | 'everyday' | 'savings' | 'flexible';
 
@@ -124,10 +130,22 @@ export interface FinancialEvent {
   runningBalance?: Money;
 }
 
+export interface PotReserveItem {
+  name: string;
+  amount: Money;
+  kind: 'bill' | 'savings';
+  date?: string;
+}
+
+export type AvailableAfterPots =
+  | { status: 'available'; amount: Money; reserved: Money; billsReserved: Money; savingsEarmarked: Money; items: PotReserveItem[]; nextPayday: string }
+  | { status: 'unavailable'; reason: string };
+
 export interface DailyForecast {
   date: string;
   openingBalance?: Money;
   closingBalance?: Money;
+  availableAfterPots?: AvailableAfterPots;
   income: Money;
   expenses: Money;
   events: FinancialEvent[];

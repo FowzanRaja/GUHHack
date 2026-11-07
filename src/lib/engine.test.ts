@@ -1,11 +1,12 @@
 import { describe, expect, it } from 'vitest';
 import { endOfMonth } from 'date-fns';
 import { previewAssistantAction } from './actions';
-import { calendarEvents, calculatePlan, dailyForecast, goalContributionSchedule, projectGoal } from './engine';
+import { calculateAvailableToday, calendarEvents, calculatePlan, dailyForecast, goalContributionSchedule, projectGoal } from './engine';
 import { migrateState } from '../hooks/useFinancialState';
 import { demoState, emptyState } from './demo';
 import { isoDate, monthlyOccurrence, scheduleDates } from './dates';
 import { poundsToPennies } from './money';
+import { answerInformationRequest } from './information';
 
 describe('financial scheduling', () => {
   it('uses the last day of short months for a monthly 31st schedule', () => {
@@ -212,5 +213,78 @@ describe('critical financial regressions', () => {
     expect(schedule.entries.reduce((sum, entry) => sum + entry.contribution, 0)).toBe(poundsToPennies(50));
     expect(schedule.onTrack.one).toBe(false);
     expect(schedule.onTrack.two).toBe(false);
+  });
+});
+
+describe('available after Pots', () => {
+  const now = new Date(2026, 10, 7, 12);
+  const dayOf = (state: ReturnType<typeof demoState>, date: string) =>
+    dailyForecast(state, now, new Date(2026, 11, 31)).find((day) => day.date === date)!;
+
+  it('reserves only unpaid bills before the next payday and savings earmarked so far', () => {
+    const state = demoState(now);
+    const today = dayOf(state, '2026-11-07');
+    expect(today.closingBalance).toBe(poundsToPennies(1120));
+    expect(today.availableAfterPots).toMatchObject({ status: 'available', billsReserved: poundsToPennies(30), savingsEarmarked: 0, amount: poundsToPennies(1090) });
+
+    const payday = dayOf(state, '2026-11-25');
+    expect(payday.closingBalance).toBe(poundsToPennies(2890));
+    // December bills before the 25 December payday: 650 + 200 + 100 + 30.
+    // Savings earmarked on 25 November: £75 emergency + £166.67 holiday. Neither leaves the account.
+    expect(payday.availableAfterPots).toMatchObject({ status: 'available', billsReserved: poundsToPennies(980), savingsEarmarked: 24167, amount: 289000 - 98000 - 24167 });
+
+    const afterRent = dayOf(state, '2026-12-01');
+    expect(afterRent.closingBalance).toBe(poundsToPennies(2240));
+    // Rent has been paid, so it is no longer reserved; the same savings earmark is not counted twice.
+    expect(afterRent.availableAfterPots).toMatchObject({ billsReserved: poundsToPennies(330), savingsEarmarked: 24167, amount: 224000 - 33000 - 24167 });
+  });
+
+  it('matches the Overview available-to-spend figure for today', () => {
+    const state = demoState(now);
+    const today = calculateAvailableToday(state, now);
+    expect(today).toMatchObject({ status: 'available', amount: poundsToPennies(1090), reserved: poundsToPennies(30) });
+  });
+
+  it('updates planned savings and earmarks when the emergency buffer is changed or paused', () => {
+    const state = demoState(now);
+    expect(calculatePlan(state, now).savingsAllocated).toBe(24167);
+    const fifty = { ...state, emergencyFundContribution: poundsToPennies(50), emergencyFundOrigin: 'customer' as const };
+    expect(calculatePlan(fifty, now).savingsAllocated).toBe(21667);
+    expect(dayOf(fifty, '2026-11-25').availableAfterPots).toMatchObject({ savingsEarmarked: 21667 });
+    const paused = { ...state, emergencyFundPaused: true };
+    const pausedPlan = calculatePlan(paused, now);
+    expect(pausedPlan.savingsAllocated).toBe(16667);
+    expect(pausedPlan.pots.some((pot) => pot.id === 'emergency')).toBe(false);
+    expect(pausedPlan.pots.some((pot) => pot.goalId === 'goal-holiday')).toBe(true);
+    expect(pausedPlan.totalAllocated).toBe(poundsToPennies(1800));
+    expect(dayOf(paused, '2026-11-25').closingBalance).toBe(poundsToPennies(2890));
+  });
+
+  it('is unavailable rather than guessed when Pots have no payment dates', () => {
+    const state = demoState(now);
+    state.manualPots = [{ id: 'pot', name: 'Gifts', allocation: poundsToPennies(20), priority: 'flexible', colour: '#0f766e' }];
+    expect(dayOf(state, '2026-11-25').availableAfterPots?.status).toBe('unavailable');
+  });
+});
+
+describe('emergency buffer transparency', () => {
+  const now = new Date(2026, 10, 7, 12);
+
+  it('marks an existing saved contribution for review instead of deleting it', () => {
+    const saved = JSON.parse(JSON.stringify(demoState(now)));
+    delete saved.emergencyFundOrigin;
+    delete saved.emergencyFundPaused;
+    const restored = migrateState(saved);
+    expect(restored.emergencyFundContribution).toBe(poundsToPennies(75));
+    expect(restored.emergencyFundOrigin).toBe('existing');
+    expect(restored.emergencyFundPaused).toBe(false);
+    expect(emptyState().emergencyFundContribution).toBeNull();
+  });
+
+  it('explains the planned savings breakdown and where the buffer came from', () => {
+    const answer = answerInformationRequest(demoState(now), { type: 'information_request', summary: 'Savings', topic: 'savings' }, now);
+    expect(answer).toContain('£241.67 (£75.00 emergency buffer + £166.67 for Holiday)');
+    expect(answer).toContain('not money already saved');
+    expect(answer).toContain('was already in your plan');
   });
 });

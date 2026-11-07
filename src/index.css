@@ -1,0 +1,154 @@
+@import url('https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800&display=swap');
+@tailwind base;
+@tailwind components;
+@tailwind utilities;
+
+@layer base {
+  :root { color: #172033; background: #f7f5f8; font-synthesis: none; }
+  * { box-sizing: border-box; }
+  html { scroll-behavior: smooth; }
+  body { @apply m-0 min-w-[320px] bg-[#f7f5f8] font-sans text-slate-800 antialiased; }
+  button, input, select, textarea { font: inherit; }
+  button { -webkit-tap-highlight-color: transparent; }
+  ::selection { @apply bg-cora-200 text-cora-950; }
+}
+
+@layer components {
+  .focus-ring { @apply outline-none focus-visible:ring-2 focus-visible:ring-cora-500 focus-visible:ring-offset-2; }
+  .skip-link { @apply fixed left-3 top-3 z-[100] -translate-y-20 rounded-lg bg-white px-4 py-2 text-sm font-bold text-cora-900 shadow-lg transition-transform focus:translate-y-0; }
+  .nav-button { @apply flex items-center gap-2 rounded-xl px-4 py-2.5 text-sm font-semibold text-cora-100 transition-colors hover:bg-white/10 hover:text-white; }
+  .nav-button-active { @apply bg-white text-cora-950 shadow-sm hover:bg-white hover:text-cora-950; }
+  .icon-button { @apply grid h-10 w-10 place-items-center rounded-xl border border-white/15 bg-white/5 text-cora-100 transition-colors hover:bg-white/15 hover:text-white; }
+  .header-action { @apply flex h-10 items-center gap-2 rounded-xl bg-white px-3 text-xs font-bold text-cora-950 transition-colors hover:bg-cora-100 sm:px-4; }
+  .mobile-nav-button { @apply flex flex-col items-center gap-1 rounded-xl py-2 text-[10px] font-semibold text-slate-500 transition-colors; }
+  .mobile-nav-active { @apply bg-cora-100 text-cora-900; }
+
+  .page-title { @apply mt-2 text-3xl font-bold tracking-tight text-cora-950 sm:text-4xl; }
+  .page-subtitle { @apply mt-2 max-w-2xl text-sm leading-6 text-slate-600 sm:text-base; }
+  .section-title { @apply mt-2 text-xl font-bold tracking-tight text-cora-950 sm:text-2xl; }
+  .section-subtitle { @apply mt-1 text-sm leading-5 text-slate-500; }
+  .eyebrow { @apply inline-flex items-center gap-1.5 text-[11px] font-bold uppercase tracking-[0.16em] text-cora-700; }
+  .eyebrow-light { @apply text-cora-100; }
+  .status-dot { @apply h-2 w-2 rounded-full bg-emerald-500 shadow-[0_0_0_4px_rgba(16,185,129,.12)]; }
+
+  .card { @apply rounded-3xl border border-slate-200/80 bg-white p-5 shadow-card sm:p-6; }
+  .card-roomy { @apply p-5 sm:p-7; }
+  .summary-card { @apply rounded-2xl border border-slate-200/80 bg-white p-5 shadow-card transition-transform duration-200 hover:-translate-y-0.5; }
+  .summary-icon { @apply grid h-10 w-10 place-items-center rounded-xl; }
+  .summary-purple { @apply bg-cora-100 text-cora-800; }
+  .summary-blue { @apply bg-blue-50 text-blue-700; }
+  .summary-green { @apply bg-emerald-50 text-emerald-700; }
+  .summary-pink { @apply bg-pink-50 text-pink-700; }
+
+  .button-primary { @apply inline-flex items-center justify-center gap-2 rounded-xl bg-cora-800 px-4 py-3 text-sm font-bold text-white shadow-sm transition-all hover:-translate-y-0.5 hover:bg-cora-900 hover:shadow-md active:translate-y-0; }
+  .button-secondary { @apply inline-flex items-center justify-center gap-2 rounded-xl border border-cora-200 bg-white px-4 py-3 text-sm font-bold text-cora-800 transition-colors hover:bg-cora-50; }
+  .button-quiet { @apply inline-flex items-center gap-1.5 rounded-xl bg-cora-50 px-3 py-2 text-xs font-bold text-cora-800 transition-colors hover:bg-cora-100; }
+  .button-small { @apply px-3 py-2 text-xs; }
+  .button-on-dark { @apply bg-white text-cora-950 hover:bg-cora-100; }
+  .button-on-dark-secondary { @apply border-white/25 bg-white/10 text-white hover:bg-white/20; }
+  .round-link { @apply grid h-10 w-10 place-items-center rounded-full bg-cora-50 text-cora-800 transition-colors hover:bg-cora-100; }
+
+  .welcome-panel { @apply relative overflow-hidden rounded-[2rem] bg-gradient-to-br from-cora-950 via-cora-900 to-cora-700 px-6 py-10 shadow-soft sm:px-10 sm:py-14 lg:px-14 lg:py-16; }
+  .welcome-orb { @apply pointer-events-none absolute rounded-full opacity-50 blur-2xl; }
+  .welcome-orb-one { @apply -right-20 -top-20 h-80 w-80 bg-fuchsia-500/40; }
+  .welcome-orb-two { @apply -bottom-40 right-48 h-96 w-96 bg-blue-400/20; }
+
+  .notice { @apply flex flex-col items-start gap-3 rounded-2xl border px-4 py-3.5 text-sm sm:flex-row sm:items-center; }
+  .notice > svg { @apply mt-0.5 shrink-0; }
+  .notice strong { @apply block font-bold; }
+  .notice p { @apply mt-0.5 text-xs leading-5 opacity-80; }
+  .notice button { @apply ml-auto whitespace-nowrap rounded-lg px-3 py-2 text-xs font-bold underline decoration-2 underline-offset-2; }
+  .notice-positive { @apply border-emerald-200 bg-emerald-50 text-emerald-950; }
+  .notice-danger { @apply border-red-200 bg-red-50 text-red-950; }
+
+  .pot-row { @apply flex w-full items-center gap-3 rounded-2xl px-3 py-3 transition-colors hover:bg-slate-50; }
+  .pot-swatch { @apply h-10 w-1.5 shrink-0 rounded-full; }
+  .event-icon { @apply grid h-9 w-9 shrink-0 place-items-center rounded-xl; }
+  .event-icon-income { @apply bg-emerald-50 text-emerald-700; }
+  .event-icon-expense { @apply bg-cora-50 text-cora-800; }
+  .goal-banner { @apply flex flex-col items-start gap-4 overflow-hidden rounded-3xl bg-gradient-to-r from-cora-950 via-cora-900 to-cora-700 p-6 shadow-soft sm:flex-row sm:items-center; }
+  .goal-icon { @apply grid h-12 w-12 shrink-0 place-items-center rounded-2xl bg-white/10 text-white ring-1 ring-white/20; }
+
+  .form-field { @apply block; }
+  .form-label { @apply mb-1.5 block text-xs font-bold text-slate-700; }
+  .form-hint { @apply mt-1.5 block text-[11px] leading-4 text-slate-500; }
+  .text-input { @apply w-full rounded-xl border-slate-200 bg-white px-3 py-2.5 text-sm text-slate-900 shadow-sm placeholder:text-slate-400 focus:border-cora-500 focus:ring-cora-500; }
+  .money-input-wrap { @apply flex items-center overflow-hidden rounded-xl border border-slate-200 bg-white pl-3 text-sm font-bold text-slate-500 shadow-sm focus-within:border-cora-500 focus-within:ring-1 focus-within:ring-cora-500; }
+  .money-input { @apply min-w-0 flex-1 border-0 bg-transparent px-2 py-2.5 text-sm font-semibold text-slate-900 focus:ring-0; }
+  .modal-actions { @apply mt-6 flex justify-end gap-2 border-t border-slate-100 pt-5; }
+
+  .month-stat { @apply flex items-center gap-3 rounded-2xl border border-slate-200/80 bg-white p-4 shadow-sm; }
+  .month-stat-icon { @apply grid h-10 w-10 place-items-center rounded-xl; }
+  .month-income { @apply bg-emerald-50 text-emerald-700; }
+  .month-expense { @apply bg-cora-50 text-cora-800; }
+  .month-warning { @apply bg-amber-50 text-amber-700; }
+  .month-safe { @apply bg-emerald-50 text-emerald-700; }
+  .calendar-nav { @apply grid h-9 w-9 place-items-center rounded-xl text-cora-800 hover:bg-cora-50; }
+  .calendar-grid { @apply grid grid-cols-7; }
+  .calendar-day { @apply relative min-h-[4.5rem] border-b border-r border-slate-100 p-1.5 text-left transition-colors hover:bg-cora-50/60 sm:min-h-[8.5rem] sm:p-2; }
+  .calendar-day:nth-child(7n) { @apply border-r-0; }
+  .calendar-day-muted { @apply bg-slate-50/50 text-slate-300; }
+  .calendar-day-selected { @apply z-10 bg-cora-50 ring-2 ring-inset ring-cora-500; }
+  .calendar-number { @apply grid h-6 w-6 place-items-center rounded-full text-xs font-bold sm:h-7 sm:w-7 sm:text-sm; }
+  .calendar-today { @apply bg-cora-800 text-white; }
+  .calendar-event { @apply flex items-center justify-between gap-1 rounded-md px-1.5 py-1 text-[9px] leading-none; }
+  .calendar-event-income { @apply bg-emerald-100 text-emerald-900; }
+  .calendar-event-expense { @apply bg-cora-100 text-cora-950; }
+  .calendar-event-goal { @apply bg-pink-100 text-pink-900; }
+  .calendar-event-allocation { @apply bg-blue-50 text-blue-900; }
+  .calendar-event-warning { @apply bg-amber-100 text-amber-950; }
+  .dot-income { @apply bg-emerald-500; }.dot-expense { @apply bg-cora-600; }.dot-goal { @apply bg-rosebank; }.dot-allocation { @apply bg-blue-500; }.dot-warning { @apply bg-amber-500; }
+  .day-event { @apply flex items-start gap-3 rounded-2xl border border-slate-100 bg-slate-50/70 p-3; }
+  .day-event-icon { @apply grid h-8 w-8 shrink-0 place-items-center rounded-xl bg-white text-cora-800 shadow-sm; }
+  .day-event-warning { @apply border-amber-200 bg-amber-50; }
+  .day-event-income .day-event-icon { @apply text-emerald-700; }
+  .day-event-goal .day-event-icon { @apply text-rosebank; }
+
+  .goal-summary-card { @apply rounded-2xl border border-slate-200/80 bg-white p-5 shadow-card; }
+  .goal-summary-card p { @apply mt-4 text-xs font-semibold uppercase tracking-wider text-slate-500; }
+  .goal-summary-card strong { @apply mt-1 block text-2xl font-bold text-cora-950; }
+  .goal-summary-icon { @apply grid h-10 w-10 place-items-center rounded-xl bg-cora-100 text-cora-800; }
+  .goal-summary-green { @apply bg-emerald-50 text-emerald-700; }.goal-summary-pink { @apply bg-pink-50 text-pink-700; }
+  .goal-summary-feature { @apply border-cora-800 bg-cora-950; }
+  .goal-summary-feature p { @apply text-cora-200; }.goal-summary-feature strong { @apply text-white; }.goal-summary-feature .goal-summary-icon { @apply bg-white/10 text-white; }
+  .empty-state { @apply flex min-h-[390px] flex-col items-center justify-center text-center; }
+  .empty-state-icon { @apply grid h-16 w-16 place-items-center rounded-2xl bg-cora-100 text-cora-800; }
+  .goal-card { @apply rounded-3xl border border-slate-200/80 bg-white p-5 shadow-card sm:p-6; }
+  .goal-progress-ring { @apply grid h-16 w-16 place-items-center rounded-full; background: conic-gradient(var(--goal-colour) var(--progress), #eee8f1 0); }
+  .goal-progress-ring::before { content: ''; @apply absolute h-12 w-12 rounded-full bg-white; }
+  .goal-progress-ring { @apply relative; }.goal-progress-ring span { @apply relative z-10 text-xs font-extrabold text-cora-950; }
+  .goal-action { @apply rounded-lg p-2 text-slate-400 hover:bg-slate-100 hover:text-cora-800; }.goal-action-delete:hover { @apply bg-red-50 text-red-700; }
+  .goal-detail { @apply rounded-2xl bg-slate-50 p-3; }.goal-detail span { @apply block text-[10px] font-bold uppercase tracking-wider text-slate-500; }.goal-detail strong { @apply mt-1 block text-sm text-cora-950; }.goal-detail small { @apply mt-1 block text-[10px] text-slate-500; }
+  .add-goal-card { @apply flex min-h-[300px] flex-col items-center justify-center rounded-3xl border-2 border-dashed border-cora-200 bg-cora-50/40 p-6 text-cora-800 transition-colors hover:border-cora-400 hover:bg-cora-50; }.add-goal-card span { @apply mt-3 font-bold; }.add-goal-card small { @apply mt-1 max-w-xs text-center text-xs leading-5 text-slate-500; }
+
+  .chat-shell { @apply flex min-h-[720px] flex-col overflow-hidden rounded-3xl border border-slate-200/80 bg-white shadow-card; }
+  .chat-header { @apply flex items-center gap-3 bg-gradient-to-r from-cora-950 to-cora-800 px-5 py-4; }
+  .cora-avatar { @apply grid h-11 w-11 place-items-center rounded-2xl bg-white text-cora-900 shadow-sm; }
+  .chat-messages { @apply flex flex-1 flex-col gap-4 overflow-y-auto bg-gradient-to-b from-cora-50/60 to-white p-4 sm:p-6; }
+  .chat-avatar-small { @apply grid h-7 w-7 shrink-0 place-items-center rounded-lg bg-cora-800 text-white; }
+  .chat-avatar-user { @apply grid h-7 w-7 shrink-0 place-items-center rounded-lg bg-slate-200 text-slate-600; }
+  .chat-bubble { @apply max-w-[85%] rounded-2xl px-4 py-3 text-sm leading-6 shadow-sm sm:max-w-[75%]; }
+  .chat-bubble time { @apply mt-1 block text-right text-[9px] opacity-50; }
+  .chat-bubble-assistant { @apply rounded-bl-md border border-slate-100 bg-white text-slate-700; }
+  .chat-bubble-user { @apply rounded-br-md bg-cora-800 text-white; }
+  .chat-composer-wrap { @apply border-t border-slate-100 bg-white p-3 sm:p-4; }
+  .chat-composer { @apply flex items-end gap-2 rounded-2xl border border-slate-200 bg-slate-50 p-2 focus-within:border-cora-400 focus-within:ring-1 focus-within:ring-cora-400; }
+  .chat-composer textarea { @apply max-h-28 min-h-[42px] flex-1 resize-none border-0 bg-transparent px-2 py-2 text-sm leading-5 text-slate-900 placeholder:text-slate-400 focus:ring-0; }
+  .send-button { @apply grid h-10 w-10 shrink-0 place-items-center rounded-xl bg-cora-800 text-white transition-colors hover:bg-cora-950 disabled:cursor-not-allowed disabled:opacity-40; }
+  .prompt-chip { @apply max-w-[240px] shrink-0 truncate rounded-full border border-cora-200 bg-cora-50 px-3 py-1.5 text-[11px] font-semibold text-cora-800 hover:bg-cora-100; }
+  .proposal-card { @apply ml-0 rounded-2xl border border-cora-200 bg-white p-4 shadow-soft sm:ml-9 sm:p-5; }
+  .proposal-figure { @apply rounded-xl bg-slate-50 p-2.5; }.proposal-figure span { @apply block text-[9px] font-bold uppercase tracking-wider text-slate-500; }.proposal-figure strong { @apply mt-1 block text-sm text-cora-950; }.proposal-figure small { @apply mt-0.5 block text-[9px] text-slate-400; }
+  .proposal-figure-changed { @apply bg-cora-50 ring-1 ring-cora-200; }
+  .manual-action { @apply rounded-lg p-1.5 text-slate-400 opacity-100 hover:bg-slate-100 hover:text-cora-800 sm:opacity-0 sm:group-hover:opacity-100 sm:focus:opacity-100; }.manual-delete:hover { @apply bg-red-50 text-red-600; }
+}
+
+.animate-enter { animation: enter .34s ease-out both; }
+@keyframes enter { from { opacity: 0; transform: translateY(6px); } to { opacity: 1; transform: translateY(0); } }
+
+.high-contrast { filter: contrast(1.08); }
+.high-contrast .page-subtitle, .high-contrast .section-subtitle, .high-contrast .text-slate-500 { color: #374151 !important; }
+.high-contrast .card, .high-contrast .summary-card, .high-contrast .goal-card { border-color: #777 !important; box-shadow: none; }
+
+@media (prefers-reduced-motion: reduce) {
+  *, *::before, *::after { scroll-behavior: auto !important; animation-duration: .01ms !important; animation-iteration-count: 1 !important; transition-duration: .01ms !important; }
+}

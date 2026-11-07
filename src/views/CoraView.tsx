@@ -75,7 +75,14 @@ export function CoraView({ state, onStateChange }: CoraViewProps) {
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ message: clean, state }),
       });
-      const data = await response.json() as { message?: string; action?: Parameters<typeof previewAssistantAction>[1] };
+      const responseText = await response.text();
+      let data: { message?: string; action?: Parameters<typeof previewAssistantAction>[1] };
+      try {
+        if (!responseText) throw new Error('empty');
+        data = JSON.parse(responseText) as { message?: string; action?: Parameters<typeof previewAssistantAction>[1] };
+      } catch {
+        throw new Error('Cora returned an invalid response. Please try again or use the manual controls.');
+      }
       if (!response.ok || !data.action || !data.message) throw new Error(data.message || 'Cora could not respond just now.');
       const nextPreview = previewAssistantAction(state, data.action);
       setPreview(nextPreview);

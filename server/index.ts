@@ -74,9 +74,16 @@ app.post('/api/assistant', async (request, response) => {
 
 const directory = path.dirname(fileURLToPath(import.meta.url));
 const distPath = path.resolve(directory, '..', 'dist');
-app.use(express.static(distPath));
+app.use(express.static(distPath, {
+  setHeaders: (response, filePath) => {
+    if (path.basename(filePath) === 'index.html') {
+      response.set('Cache-Control', 'no-store');
+    }
+  },
+}));
 app.use((request, response, next) => {
   if (request.method === 'GET' && !request.path.startsWith('/api/')) {
+    response.set('Cache-Control', 'no-store');
     response.sendFile(path.join(distPath, 'index.html'));
     return;
   }

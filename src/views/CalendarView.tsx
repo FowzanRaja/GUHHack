@@ -7,6 +7,22 @@ import { formatMoney } from '../lib/money';
 import { isoDate, parseDate } from '../lib/dates';
 import { Modal } from '../components/Modal';
 
+const eventToneClasses = {
+  income: 'border-emerald-200 bg-emerald-100 text-emerald-900',
+  expense: 'border-cora-200 bg-cora-100 text-cora-950',
+  goal: 'border-pink-200 bg-pink-100 text-pink-900',
+  allocation: 'border-blue-200 bg-blue-50 text-blue-900',
+  warning: 'border-amber-200 bg-amber-100 text-amber-950',
+} as const;
+
+const eventDotClasses = {
+  income: 'bg-emerald-500',
+  expense: 'bg-cora-600',
+  goal: 'bg-rosebank',
+  allocation: 'bg-blue-500',
+  warning: 'bg-amber-500',
+} as const;
+
 export function CalendarView({ state }: { state: FinancialState }) {
   const [month, setMonth] = useState(startOfMonth(new Date()));
   const [selectedDate, setSelectedDate] = useState<string | null>(null);
@@ -66,11 +82,11 @@ export function CalendarView({ state }: { state: FinancialState }) {
             return <button key={date} onClick={() => setSelectedDate(date)} className={`calendar-day focus-ring ${currentMonth ? '' : 'calendar-day-muted'}`} role="gridcell" aria-label={`${format(day, 'EEEE d MMMM')}, ${dayEvents.length} financial events. ${dayForecast?.closingBalance === undefined ? 'Closing balance unavailable' : `Closing balance ${formatMoney(dayForecast.closingBalance)}`}`}>
               <span className={`calendar-number ${isToday ? 'calendar-today' : ''}`}>{format(day, 'd')}</span>
               <span className="mt-2 hidden space-y-1 sm:block">
-                {dayEvents.slice(0, 2).map((event) => <span key={event.id} className={`calendar-event calendar-event-${event.type}`}><span className="flex min-w-0 items-center gap-0.5">{event.type === 'income' && <ArrowDownLeft size={10} className="shrink-0" aria-hidden="true" />}{event.type === 'expense' && <ArrowUpRight size={10} className="shrink-0" aria-hidden="true" />}<span className="truncate">{event.name}</span></span>{event.type !== 'warning' && <span className="font-bold">{event.type === 'income' ? '+' : event.type === 'expense' ? '−' : ''}{formatMoney(event.amount, { compact: true })}</span>}</span>)}
+                {dayEvents.slice(0, 2).map((event) => <span key={event.id} className={`calendar-event ${eventToneClasses[event.type]}`}><span className="flex min-w-0 items-center gap-0.5">{event.type === 'income' && <ArrowDownLeft size={10} className="shrink-0" aria-hidden="true" />}{event.type === 'expense' && <ArrowUpRight size={10} className="shrink-0" aria-hidden="true" />}<span className="truncate">{event.name}</span></span>{event.type !== 'warning' && <span className="font-bold">{event.type === 'income' ? '+' : event.type === 'expense' ? '−' : ''}{formatMoney(event.amount, { compact: true })}</span>}</span>)}
                 {dayEvents.length > 2 && <span className="block pl-1 text-[10px] font-semibold text-slate-500">+{dayEvents.length - 2} more</span>}
                 {currentMonth && <span className={`block pt-1 text-[10px] font-bold ${dayForecast?.closingBalance !== undefined && dayForecast.closingBalance < 0 ? 'text-red-700' : 'text-slate-500'}`}>{dayForecast?.closingBalance === undefined ? 'Balance —' : formatMoney(dayForecast.closingBalance, { compact: true })}</span>}
               </span>
-              <span className="mt-2 flex flex-wrap justify-center gap-1 sm:hidden" aria-hidden="true">{dayEvents.slice(0, 4).map((event) => <span key={event.id} className={`h-1.5 w-1.5 rounded-full dot-${event.type}`} />)}</span>
+              <span className="mt-2 flex flex-wrap justify-center gap-1 sm:hidden" aria-hidden="true">{dayEvents.slice(0, 4).map((event) => <span key={event.id} className={`h-1.5 w-1.5 rounded-full ${eventDotClasses[event.type]}`} />)}</span>
             </button>;
           })}
         </div>
@@ -124,5 +140,5 @@ function MonthStat({ label, value, icon: Icon, tone }: { label: string; value: s
 function Legend({ colour, label }: { colour: string; label: string }) { return <span className="flex items-center gap-1.5"><span className={`h-2.5 w-2.5 rounded-full ${colour}`} />{label}</span>; }
 function DayEvent({ event }: { event: FinancialEvent }) {
   const Icon = event.type === 'income' ? ArrowDownLeft : event.type === 'expense' ? ArrowUpRight : event.type === 'goal' ? PiggyBank : event.type === 'allocation' ? WalletCards : AlertTriangle;
-  return <div className={`day-event day-event-${event.type}`}><span className="day-event-icon"><Icon size={17} /></span><div className="min-w-0 flex-1"><p className="text-sm font-semibold text-slate-900">{event.name}</p>{event.detail && <p className="mt-0.5 text-xs leading-4 text-slate-500">{event.detail}</p>}</div>{event.type !== 'warning' && <strong className="text-sm text-slate-900">{event.type === 'income' ? '+' : event.type === 'expense' ? '−' : ''}{formatMoney(event.amount, { compact: true })}</strong>}</div>;
+  return <div className={`day-event ${eventToneClasses[event.type]}`}><span className="day-event-icon"><Icon size={17} /></span><div className="min-w-0 flex-1"><p className="text-sm font-semibold text-slate-900">{event.name}</p>{event.detail && <p className="mt-0.5 text-xs leading-4 text-slate-500">{event.detail}</p>}</div>{event.type !== 'warning' && <strong className="text-sm text-slate-900">{event.type === 'income' ? '+' : event.type === 'expense' ? '−' : ''}{formatMoney(event.amount, { compact: true })}</strong>}</div>;
 }

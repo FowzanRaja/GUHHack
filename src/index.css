@@ -91,18 +91,25 @@
   .calendar-day-selected { @apply z-10 bg-cora-50 ring-2 ring-inset ring-cora-500; }
   .calendar-number { @apply grid h-6 w-6 place-items-center rounded-full text-xs font-bold sm:h-7 sm:w-7 sm:text-sm; }
   .calendar-today { @apply bg-cora-800 text-white; }
-  .calendar-event { @apply flex items-center justify-between gap-1 rounded-md px-1.5 py-1 text-[9px] leading-none; }
-  .calendar-event-income { @apply bg-emerald-100 text-emerald-900; }
-  .calendar-event-expense { @apply bg-cora-100 text-cora-950; }
-  .calendar-event-goal { @apply bg-pink-100 text-pink-900; }
-  .calendar-event-allocation { @apply bg-blue-50 text-blue-900; }
-  .calendar-event-warning { @apply bg-amber-100 text-amber-950; }
+  .calendar-event { @apply flex items-center justify-between gap-1 rounded-md border px-1.5 py-1 text-[9px] font-medium leading-none shadow-sm; }
+  .calendar-event-income { @apply border-emerald-200 bg-emerald-100 text-emerald-900; }
+  .calendar-event-expense { @apply border-cora-200 bg-cora-100 text-cora-950; }
+  .calendar-event-goal { @apply border-pink-200 bg-pink-100 text-pink-900; }
+  .calendar-event-allocation { @apply border-blue-200 bg-blue-50 text-blue-900; }
+  .calendar-event-warning { @apply border-amber-200 bg-amber-100 text-amber-950; }
   .dot-income { @apply bg-emerald-500; }.dot-expense { @apply bg-cora-600; }.dot-goal { @apply bg-rosebank; }.dot-allocation { @apply bg-blue-500; }.dot-warning { @apply bg-amber-500; }
-  .day-event { @apply flex items-start gap-3 rounded-2xl border border-slate-100 bg-slate-50/70 p-3; }
-  .day-event-icon { @apply grid h-8 w-8 shrink-0 place-items-center rounded-xl bg-white text-cora-800 shadow-sm; }
+  .day-event { @apply flex items-start gap-3 rounded-2xl border p-3; }
+  .day-event-icon { @apply grid h-8 w-8 shrink-0 place-items-center rounded-xl bg-white shadow-sm; }
+  .day-event-income { @apply border-emerald-200 bg-emerald-50; }
+  .day-event-income .day-event-icon { @apply text-emerald-700 ring-1 ring-inset ring-emerald-200; }
+  .day-event-expense { @apply border-cora-200 bg-cora-50; }
+  .day-event-expense .day-event-icon { @apply text-cora-700 ring-1 ring-inset ring-cora-200; }
+  .day-event-goal { @apply border-pink-200 bg-pink-50; }
+  .day-event-goal .day-event-icon { @apply text-pink-700 ring-1 ring-inset ring-pink-200; }
+  .day-event-allocation { @apply border-blue-200 bg-blue-50; }
+  .day-event-allocation .day-event-icon { @apply text-blue-700 ring-1 ring-inset ring-blue-200; }
   .day-event-warning { @apply border-amber-200 bg-amber-50; }
-  .day-event-income .day-event-icon { @apply text-emerald-700; }
-  .day-event-goal .day-event-icon { @apply text-rosebank; }
+  .day-event-warning .day-event-icon { @apply text-amber-700 ring-1 ring-inset ring-amber-200; }
   .day-figure-income { @apply bg-emerald-50 text-emerald-900; }
   .day-figure-expense { @apply bg-cora-50 text-cora-950; }
   .day-figure-balance { @apply bg-blue-50 text-blue-950; }

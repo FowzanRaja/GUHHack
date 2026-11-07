@@ -8,11 +8,31 @@ function loadState(): FinancialState {
   try {
     const saved = localStorage.getItem(STORAGE_KEY);
     if (!saved) return emptyState();
-    const parsed = JSON.parse(saved) as FinancialState;
-    return parsed.version === 1 ? parsed : emptyState();
+    return migrateState(JSON.parse(saved) as Partial<Omit<FinancialState, 'version'>> & { version?: number });
   } catch {
     return emptyState();
   }
+}
+
+export function migrateState(saved: Partial<Omit<FinancialState, 'version'>> & { version?: number }): FinancialState {
+  const defaults = emptyState();
+  if (saved.version !== 1 && saved.version !== 2) return defaults;
+  return {
+    ...defaults,
+    ...saved,
+    version: 2,
+    currentBalance: typeof saved.currentBalance === 'number' ? saved.currentBalance : null,
+    emergencyFundContribution: typeof saved.emergencyFundContribution === 'number' ? saved.emergencyFundContribution : null,
+    conversation: saved.conversation && Array.isArray(saved.conversation.history)
+      ? { history: saved.conversation.history.slice(-24), pending: saved.conversation.pending, proposal: saved.conversation.proposal }
+      : defaults.conversation,
+    incomes: Array.isArray(saved.incomes) ? saved.incomes : [],
+    expenses: Array.isArray(saved.expenses) ? saved.expenses : [],
+    goals: Array.isArray(saved.goals) ? saved.goals : [],
+    manualPots: Array.isArray(saved.manualPots) ? saved.manualPots : [],
+    incomeOverrides: Array.isArray(saved.incomeOverrides) ? saved.incomeOverrides : [],
+    allocationOverrides: saved.allocationOverrides ?? {},
+  };
 }
 
 export function useFinancialState() {

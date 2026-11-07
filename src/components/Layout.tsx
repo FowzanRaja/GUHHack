@@ -1,5 +1,5 @@
 import type { ReactNode } from 'react';
-import { CalendarDays, Contrast, LayoutDashboard, MessageCircleMore, PiggyBank, RotateCcw, Sparkles } from 'lucide-react';
+import { CalendarDays, Contrast, LayoutDashboard, MessageCircleMore, PiggyBank, RotateCcw, Sparkles, Trash2 } from 'lucide-react';
 
 export type NavSection = 'overview' | 'cora' | 'calendar' | 'goals';
 
@@ -14,14 +14,16 @@ interface LayoutProps {
   active: NavSection;
   onNavigate: (section: NavSection) => void;
   onDemo: () => void;
-  onReset: () => void;
+  onResetDemo: () => void;
+  onClearPlan: () => void;
+  hasPlan: boolean;
   simplified: boolean;
   onToggleSimplified: () => void;
   isDemo: boolean;
   children: ReactNode;
 }
 
-export function Layout({ active, onNavigate, onDemo, onReset, simplified, onToggleSimplified, isDemo, children }: LayoutProps) {
+export function Layout({ active, onNavigate, onDemo, onResetDemo, onClearPlan, hasPlan, simplified, onToggleSimplified, isDemo, children }: LayoutProps) {
   return (
     <div className={simplified ? 'high-contrast min-h-screen' : 'min-h-screen'}>
       <a href="#main-content" className="skip-link">Skip to main content</a>
@@ -60,10 +62,11 @@ export function Layout({ active, onNavigate, onDemo, onReset, simplified, onTogg
               <span className="sr-only">Toggle high contrast</span>
             </button>
             {isDemo ? (
-              <button onClick={onReset} className="header-action focus-ring"><RotateCcw size={16} aria-hidden="true" /> <span className="hidden sm:inline">Reset demo</span></button>
+              <button onClick={onResetDemo} className="header-action focus-ring"><RotateCcw size={16} aria-hidden="true" /> <span className="hidden sm:inline">Reset demo</span></button>
             ) : (
               <button onClick={onDemo} className="header-action focus-ring"><Sparkles size={16} aria-hidden="true" /> Try a demo</button>
             )}
+            {hasPlan && <button onClick={onClearPlan} className="icon-button focus-ring" title="Clear plan and start again" aria-label="Clear plan and start again"><Trash2 size={17} aria-hidden="true" /></button>}
           </div>
         </div>
       </header>

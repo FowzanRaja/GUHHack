@@ -4,7 +4,7 @@ import { Calendar, CheckCircle2, Edit3, Flag, Plus, Sparkles, Target, Trash2, Tr
 import type { FinancialState, SavingsGoal } from '../types';
 import { calculatePlan, projectGoal } from '../lib/engine';
 import { formatMoney } from '../lib/money';
-import { parseDate, isoDate } from '../lib/dates';
+import { isoDate, tryParseDate } from '../lib/dates';
 import { Modal } from '../components/Modal';
 import { MoneyInput } from '../components/MoneyInput';
 import { makeId } from '../lib/id';
@@ -66,10 +66,11 @@ export function GoalsView({ state, onSave, onDelete, onAskCora }: GoalsViewProps
 function GoalCard({ goal, state, onEdit, onDelete }: { goal: SavingsGoal; state: FinancialState; onEdit: () => void; onDelete: () => void }) {
   const projection = projectGoal(state, goal);
   const percent = goal.targetAmount ? Math.min(100, Math.round((goal.currentAmount / goal.targetAmount) * 100)) : 0;
-  const days = differenceInCalendarDays(parseDate(goal.targetDate), new Date());
+  const targetDate = tryParseDate(goal.targetDate);
+  const days = targetDate ? differenceInCalendarDays(targetDate, new Date()) : -1;
   const plan = calculatePlan(state);
   const goalPot = plan.pots.find((pot) => pot.goalId === goal.id);
-  const underfunded = goalPot ? goalPot.allocation < goalPot.requested : projection.remaining > 0;
+  const underfunded = !projection.validDeadline || days < 0 || (goalPot ? goalPot.allocation < goalPot.requested : projection.remaining > 0);
   return (
     <article className="goal-card">
       <div className="flex items-start justify-between gap-3">
@@ -82,11 +83,11 @@ function GoalCard({ goal, state, onEdit, onDelete }: { goal: SavingsGoal; state:
       </div>
       <div className="mt-5 grid grid-cols-2 gap-3">
         <div className="goal-detail"><span>Each payday</span><strong>{projection.eligibleIncomeCount ? formatMoney(projection.contributionPerIncome, { compact: true }) : 'Set income'}</strong><small>{projection.eligibleIncomeCount} payment{projection.eligibleIncomeCount === 1 ? '' : 's'} left</small></div>
-        <div className="goal-detail"><span>Target date</span><strong>{format(parseDate(goal.targetDate), 'd MMM yyyy')}</strong><small>{days >= 0 ? `${days} days away` : 'Date has passed'}</small></div>
+        <div className="goal-detail"><span>Target date</span><strong>{targetDate ? format(targetDate, 'd MMM yyyy') : 'Invalid date'}</strong><small>{!targetDate ? 'Edit this goal to correct it' : days >= 0 ? `${days} days away` : 'Date has passed — edit this goal'}</small></div>
       </div>
       <div className={`mt-4 flex items-start gap-2 rounded-xl px-3 py-2.5 text-xs leading-5 ${underfunded ? 'bg-amber-50 text-amber-900' : 'bg-emerald-50 text-emerald-900'}`}>
         <CheckCircle2 size={16} className="mt-0.5 shrink-0" />
-        <span>{underfunded ? 'The full suggested contribution may not fit after current commitments. Review it with Cora.' : 'This month’s suggested contribution fits after known commitments.'}</span>
+        <span>{!targetDate || days < 0 ? 'This goal is preserved, but its deadline must be corrected before Cora can calculate a reliable contribution.' : underfunded ? 'The full suggested contribution may not fit after current commitments. Review it with Cora.' : 'This month’s suggested contribution fits after known commitments.'}</span>
       </div>
     </article>
   );
@@ -96,7 +97,7 @@ function GoalModal({ goal, onClose, onSave }: { goal?: SavingsGoal; onClose: () 
   const [name, setName] = useState(goal?.name ?? '');
   const [target, setTarget] = useState(goal?.targetAmount ?? 0);
   const [current, setCurrent] = useState(goal?.currentAmount ?? 0);
-  const [date, setDate] = useState(goal?.targetDate ?? '');
+  const [date, setDate] = useState(goal && tryParseDate(goal.targetDate) ? goal.targetDate : '');
   return (
     <Modal title={goal ? `Edit ${goal.name}` : 'Create a savings goal'} description="Cora will use the income events before this date to calculate a contribution." onClose={onClose}>
       <div className="space-y-4">

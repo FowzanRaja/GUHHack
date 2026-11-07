@@ -33,6 +33,8 @@ export function CalendarView({ state }: { state: FinancialState }) {
   const incomeTotal = events.filter((event) => event.type === 'income').reduce((sum, event) => sum + event.amount, 0);
   const expenseTotal = events.filter((event) => event.type === 'expense').reduce((sum, event) => sum + event.amount, 0);
   const warnings = events.filter((event) => event.type === 'warning').length;
+  const allowances = state.expenses.filter((expense) => expense.schedule.kind === 'monthly_allowance');
+  const allowanceTotal = allowances.reduce((sum, expense) => sum + expense.amount, 0);
 
   function moveMonth(amount: number) {
     const next = addMonths(month, amount);
@@ -60,6 +62,13 @@ export function CalendarView({ state }: { state: FinancialState }) {
         <MonthStat label="Payments scheduled" value={formatMoney(expenseTotal)} icon={ArrowUpRight} tone="expense" />
         <MonthStat label="Timing warnings" value={String(warnings)} icon={AlertTriangle} tone={warnings ? 'warning' : 'safe'} />
       </section>
+
+      {(allowanceTotal > 0 || state.currentBalance === null) && (
+        <div className="grid gap-3 sm:grid-cols-2">
+          {allowanceTotal > 0 && <div className="flex items-start gap-3 rounded-2xl border border-blue-200 bg-blue-50 px-4 py-3 text-sm text-blue-950"><WalletCards size={18} className="mt-0.5 shrink-0" /><div><strong>Ongoing monthly allowances: {formatMoney(allowanceTotal)}</strong><p className="mt-0.5 text-xs leading-5 text-blue-800">{allowances.map((expense) => `${expense.name} ${formatMoney(expense.amount)}`).join(' · ')}. Included in Pots without a made-up payment date.</p></div></div>}
+          {state.currentBalance === null && <div className="flex items-start gap-3 rounded-2xl border border-amber-200 bg-amber-50 px-4 py-3 text-sm text-amber-950"><Info size={18} className="mt-0.5 shrink-0" /><div><strong>Opening balance not provided</strong><p className="mt-0.5 text-xs leading-5 text-amber-800">Dated events are shown, but estimated balances and shortfall warnings are paused.</p></div></div>}
+        </div>
+      )}
 
       <section className="grid gap-6 xl:grid-cols-[minmax(0,1fr)_360px]">
         <article className="card overflow-hidden p-0">

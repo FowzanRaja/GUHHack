@@ -21,6 +21,11 @@ export function parseDate(value: string): Date {
   return isValid(parsed) ? startOfDay(parsed) : startOfDay(new Date());
 }
 
+export function tryParseDate(value: string): Date | undefined {
+  const parsed = parseISO(value);
+  return /^\d{4}-\d{2}-\d{2}$/.test(value) && isValid(parsed) ? startOfDay(parsed) : undefined;
+}
+
 export function monthlyOccurrence(year: number, monthIndex: number, day: number): Date {
   const monthStart = new Date(year, monthIndex, 1);
   const lastDay = endOfMonth(monthStart).getDate();
@@ -36,6 +41,8 @@ export function scheduleDates(schedule: Schedule, from: Date, to: Date): Date[] 
     const date = parseDate(schedule.date);
     return !isBefore(date, start) && !isAfter(date, end) ? [date] : [];
   }
+
+  if (schedule.kind === 'monthly_allowance') return [];
 
   if (schedule.kind === 'monthly') {
     const dates: Date[] = [];

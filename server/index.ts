@@ -3,6 +3,7 @@ import express from 'express';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { assistantRequestSchema, assistantResponseSchema, assistantToolSchema } from './schemas.js';
+import { guardGoalDates, resolvePendingClarification } from './conversation.js';
 
 try {
   process.loadEnvFile?.();
@@ -28,6 +29,12 @@ app.post('/api/assistant', async (request, response) => {
     response.status(400).json({ message: 'Please check the details you entered and try again.', code: 'INVALID_REQUEST' });
     return;
   }
+  const now = new Date();
+  const resolvedPending = resolvePendingClarification(parsed.data.pending, parsed.data.message, now);
+  if (resolvedPending) {
+    response.json(resolvedPending);
+    return;
+  }
   if (!apiKey) {
     response.status(503).json({
       message: 'Cora’s AI service has not been connected yet. You can still use all manual controls and the demo.',
@@ -38,15 +45,33 @@ app.post('/api/assistant', async (request, response) => {
 
   try {
     const client = new Anthropic({ apiKey });
-    const currentDate = new Date().toISOString().slice(0, 10);
+    const currentDate = now.toISOString().slice(0, 10);
+    const conversation = parsed.data.history
+      .slice(-20)
+      .map((item) => `${item.role === 'user' ? 'Customer' : 'Cora'}: ${item.text}`)
+      .join('\n');
     const result = await client.messages.create({
       model,
       max_tokens: 1400,
-      system: `You are Cora, a concise, empathetic UK banking assistant for a concept prototype. Interpret the customer's message and propose exactly one validated action. You never mutate money directly, promise affordability, shame spending, or invent an ambiguous date. Ask for clarification when a schedule or requested change cannot be safely identified. All monetary amounts in tool input MUST be integer pennies (for example £12.34 is 1234). Dates MUST be YYYY-MM-DD. Today is ${currentDate}. Use IDs exactly as given in the financial state. Distinguish temporary changes from permanent ones. An allocation is earmarking, not a payment. Keep the customer-facing message under 90 words.`,
+      system: `You are Cora, a concise, empathetic UK banking assistant for a concept prototype. Interpret the customer's latest message in the context of the recent conversation, pending clarification, and current financial state, then propose exactly one validated action.
+
+Rules:
+- Never mutate money directly, promise affordability, shame spending, or invent a missing fact.
+- Continue a pending clarification when the latest reply supplies the missing detail. If the customer clearly changes topic, handle the new topic instead.
+- Do not ask for information already present in the conversation or state.
+- All money in tool input MUST be integer pennies (£12.34 is 1234). All dates MUST be YYYY-MM-DD. Today is ${currentDate}.
+- A regular monthly allowance without an exact payment date MUST use schedule {"kind":"monthly_allowance"}; never invent a date for groceries, transport, or similar allowances.
+- A financial_profile must include extracted savings goals and any explicitly proposed emergency contribution. Use profileMode=create for an empty profile, replace only when the customer is replacing it, and merge for added details.
+- If an emergency fund is requested without an amount, you may propose a clearly-labelled contribution that fits after known needs, but it remains subject to application calculation and confirmation.
+- Use information_request for questions about stored figures. Do not calculate or quote independent totals in the message; the application will provide the deterministic answer.
+- Distinguish new_goal, update_goal, goal_contribution, and goal_progress. Do not overwrite a goal unless the customer intends an update.
+- If a goal date is missing or ambiguous, return clarification with a structured pending action containing every known value.
+- Use IDs exactly as given. Distinguish temporary from permanent changes. An allocation is earmarking, not a payment.
+- Keep the customer-facing message under 90 words.`,
       messages: [
         {
           role: 'user',
-          content: `Customer message:\n${parsed.data.message}\n\nCurrent financial state:\n${JSON.stringify(parsed.data.state)}`,
+          content: `Recent conversation (oldest first):\n${conversation || '(no earlier messages)'}\n\nPending clarification:\n${JSON.stringify(parsed.data.pending ?? null)}\n\nLatest customer message:\n${parsed.data.message}\n\nCurrent financial state:\n${JSON.stringify(parsed.data.state)}`,
         },
       ],
       tools: [
@@ -62,7 +87,7 @@ app.post('/api/assistant', async (request, response) => {
     if (!toolUse || toolUse.type !== 'tool_use') throw new Error('No structured proposal returned');
     const validated = assistantResponseSchema.safeParse(toolUse.input);
     if (!validated.success) throw new Error('The structured proposal did not pass validation');
-    response.json(validated.data);
+    response.json(guardGoalDates(validated.data, now));
   } catch (error) {
     console.error('Cora AI request failed:', error instanceof Error ? error.message : error);
     response.status(502).json({

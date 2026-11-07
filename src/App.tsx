@@ -13,17 +13,38 @@ export default function App() {
   const { state, update, loadDemo, reset, announcement } = useFinancialState();
   const [active, setActive] = useState<NavSection>('overview');
   const plan = useMemo(() => calculatePlan(state), [state]);
+  const hasPlan = state.incomes.length > 0 || state.expenses.length > 0 || state.goals.length > 0;
 
   function saveGoal(goal: SavingsGoal) {
     update({ ...state, goals: state.goals.some((item) => item.id === goal.id) ? state.goals.map((item) => item.id === goal.id ? goal : item) : [...state.goals, goal] }, `${goal.name} goal saved.`);
+  }
+
+  function loadDemoWithConfirmation() {
+    if (hasPlan && !window.confirm('Load the original demo? This will replace the current local plan and Cora conversation.')) return;
+    loadDemo();
+    setActive('overview');
+  }
+
+  function resetDemoWithConfirmation() {
+    if (!window.confirm('Reset the demo to its original income, expenses, goal, calendar and conversation? Your demo changes will be replaced.')) return;
+    loadDemo();
+    setActive('overview');
+  }
+
+  function clearPlanWithConfirmation() {
+    if (!window.confirm('Clear this local financial plan and conversation and start again? This cannot be undone.')) return;
+    reset();
+    setActive('overview');
   }
 
   return (
     <Layout
       active={active}
       onNavigate={setActive}
-      onDemo={() => { loadDemo(); setActive('overview'); }}
-      onReset={() => { reset(); setActive('overview'); }}
+      onDemo={loadDemoWithConfirmation}
+      onResetDemo={resetDemoWithConfirmation}
+      onClearPlan={clearPlanWithConfirmation}
+      hasPlan={hasPlan}
       simplified={state.simplifiedMode}
       onToggleSimplified={() => update({ ...state, simplifiedMode: !state.simplifiedMode }, `High contrast mode ${state.simplifiedMode ? 'off' : 'on'}.`)}
       isDemo={state.isDemo}
@@ -34,7 +55,7 @@ export default function App() {
           state={state}
           plan={plan}
           onNavigate={setActive}
-          onLoadDemo={() => { loadDemo(); setActive('overview'); }}
+          onLoadDemo={loadDemoWithConfirmation}
           onSetAllocation={(id, value) => update({ ...state, allocationOverrides: { ...state.allocationOverrides, [id]: value } }, 'Pot allocation updated.')}
           onAddPot={(name, allocation) => update({ ...state, manualPots: [...state.manualPots, { id: makeId('pot'), name, allocation, priority: 'flexible', colour: '#0f766e' }] }, `${name} Pot added.`)}
         />

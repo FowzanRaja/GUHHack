@@ -5,15 +5,26 @@ import { poundsToPennies } from './money';
 
 export function emptyState(): FinancialState {
   return {
-    version: 1,
+    version: 2,
     customerName: '',
-    currentBalance: 0,
+    currentBalance: null,
     incomes: [],
     expenses: [],
     goals: [],
     manualPots: [],
     incomeOverrides: [],
     allocationOverrides: {},
+    emergencyFundContribution: null,
+    conversation: {
+      history: [
+        {
+          id: 'welcome-empty',
+          role: 'assistant',
+          text: 'Hi! Tell me about your income, regular bills and what you want to save for. I’ll organise the details for you to review.',
+          timestamp: new Date().toISOString(),
+        },
+      ],
+    },
     simplifiedMode: false,
     isDemo: false,
     lastUpdated: new Date().toISOString(),
@@ -25,7 +36,18 @@ export function demoState(now = new Date()): FinancialState {
     ...emptyState(),
     customerName: 'Alex',
     currentBalance: poundsToPennies(1120),
+    emergencyFundContribution: poundsToPennies(75),
     isDemo: true,
+    conversation: {
+      history: [
+        {
+          id: 'welcome-demo',
+          role: 'assistant',
+          text: 'The original demo plan is loaded. Tell me what has changed and I’ll show the impact before anything is saved.',
+          timestamp: now.toISOString(),
+        },
+      ],
+    },
     incomes: [
       {
         id: 'income-salary',

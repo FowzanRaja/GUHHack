@@ -10,6 +10,7 @@ import {
 } from 'date-fns';
 import type {
   ExpenseCategory,
+  Expense,
   FinancialEvent,
   FinancialPlan,
   FinancialState,
@@ -17,8 +18,8 @@ import type {
   PlanNotice,
   SavingsGoal,
 } from '../types';
-import { isoDate, parseDate, scheduleDates } from './dates';
-import { clampMoney } from './money';
+import { isoDate, parseDate, scheduleDates, tryParseDate } from './dates';
+import { clampMoney, formatMoney } from './money';
 
 const CATEGORY_META: Record<ExpenseCategory, { name: string; colour: string; description: string }> = {
   bills: { name: 'Bills', colour: '#4e2070', description: 'Rent and regular household commitments' },
@@ -35,6 +36,7 @@ export interface GoalProjection {
   remaining: number;
   affordable: boolean;
   projectedDate?: string;
+  validDeadline: boolean;
 }
 
 function overrideFor(state: FinancialState, sourceId: string, date: string) {
@@ -118,13 +120,16 @@ function dedupeEvents(events: FinancialEvent[]): FinancialEvent[] {
 
 export function projectGoal(state: FinancialState, goal: SavingsGoal, asOf = new Date()): GoalProjection {
   const remaining = clampMoney(goal.targetAmount - goal.currentAmount);
-  const deadline = parseDate(goal.targetDate);
+  const deadline = tryParseDate(goal.targetDate);
   const start = startOfDay(asOf);
+  if (!deadline) {
+    return { contributionPerIncome: 0, eligibleIncomeCount: 0, remaining, affordable: false, validDeadline: false };
+  }
   if (remaining === 0) {
-    return { contributionPerIncome: 0, eligibleIncomeCount: 0, remaining: 0, affordable: true, projectedDate: isoDate(start) };
+    return { contributionPerIncome: 0, eligibleIncomeCount: 0, remaining: 0, affordable: true, projectedDate: isoDate(start), validDeadline: true };
   }
   if (isBefore(deadline, start)) {
-    return { contributionPerIncome: remaining, eligibleIncomeCount: 0, remaining, affordable: false };
+    return { contributionPerIncome: remaining, eligibleIncomeCount: 0, remaining, affordable: false, validDeadline: true };
   }
   const incomeEvents = incomeEventsForRange(state, start, deadline).filter((event) => event.amount > 0);
   const contributionPerIncome = incomeEvents.length ? Math.ceil(remaining / incomeEvents.length) : remaining;
@@ -134,26 +139,32 @@ export function projectGoal(state: FinancialState, goal: SavingsGoal, asOf = new
     remaining,
     affordable: incomeEvents.length > 0,
     projectedDate: incomeEvents.at(-1)?.date,
+    validDeadline: true,
   };
 }
 
 function requestedForMonth(state: FinancialState, goal: SavingsGoal, monthStart: Date, monthEnd: Date): number {
   const projection = projectGoal(state, goal, monthStart);
-  if (!projection.eligibleIncomeCount) return 0;
-  const deadline = parseDate(goal.targetDate);
+  const deadline = tryParseDate(goal.targetDate);
+  if (!projection.eligibleIncomeCount || !deadline) return 0;
   const end = isBefore(deadline, monthEnd) ? deadline : monthEnd;
   const eligibleThisMonth = incomeEventsForRange(state, monthStart, end).length;
   return Math.min(projection.remaining, projection.contributionPerIncome * eligibleThisMonth);
+}
+
+export function expenseAmountForMonth(expense: Expense, referenceDate = new Date()): number {
+  if (expense.schedule.kind === 'monthly_allowance') return expense.amount;
+  return expense.amount * scheduleDates(expense.schedule, startOfMonth(referenceDate), endOfMonth(referenceDate)).length;
 }
 
 export function calculatePlan(state: FinancialState, referenceDate = new Date()): FinancialPlan {
   const monthStart = startOfMonth(referenceDate);
   const monthEnd = endOfMonth(referenceDate);
   const expectedIncome = incomeEventsForRange(state, monthStart, monthEnd).reduce((sum, event) => sum + event.amount, 0);
-  const available = expectedIncome > 0 ? expectedIncome : clampMoney(state.currentBalance);
+  const available = expectedIncome > 0 ? expectedIncome : clampMoney(state.currentBalance ?? 0);
   const expenses = state.expenses.flatMap((expense) => {
-    const occurrences = scheduleDates(expense.schedule, monthStart, monthEnd).length;
-    return occurrences ? [{ ...expense, monthlyAmount: expense.amount * occurrences }] : [];
+    const monthlyAmount = expenseAmountForMonth(expense, referenceDate);
+    return monthlyAmount ? [{ ...expense, monthlyAmount }] : [];
   });
 
   const categoryRequests = new Map<ExpenseCategory, { amount: number; protected: boolean }>();
@@ -191,7 +202,7 @@ export function calculatePlan(state: FinancialState, referenceDate = new Date())
   const protectedTotal = protectedPots.reduce((sum, pot) => sum + pot.requested, 0);
   let remaining = available - protectedTotal;
 
-  const emergencyRequested = available > protectedTotal ? Math.min(7500, Math.round(available * 0.05)) : 0;
+  const emergencyRequested = available > protectedTotal ? clampMoney(state.emergencyFundContribution ?? 0) : 0;
   const emergencyAllocation = Math.min(emergencyRequested, Math.max(0, remaining));
   remaining -= emergencyAllocation;
   const emergencyPot: PlannedPot | undefined = emergencyRequested
@@ -210,6 +221,7 @@ export function calculatePlan(state: FinancialState, referenceDate = new Date())
     const requested = state.allocationOverrides[`goal-${goal.id}`] ?? requestedForMonth(state, goal, monthStart, monthEnd);
     const allocation = Math.min(requested, Math.max(0, remaining));
     remaining -= allocation;
+    const validTarget = tryParseDate(goal.targetDate);
     return {
       id: `goal-${goal.id}`,
       goalId: goal.id,
@@ -218,7 +230,7 @@ export function calculatePlan(state: FinancialState, referenceDate = new Date())
       requested,
       priority: 'savings' as const,
       colour: goal.colour,
-      description: `Towards ${format(parseDate(goal.targetDate), 'd MMM yyyy')}`,
+      description: validTarget ? `Towards ${format(validTarget, 'd MMM yyyy')}` : 'Target date needs correcting',
     };
   });
 
@@ -271,7 +283,7 @@ export function calculatePlan(state: FinancialState, referenceDate = new Date())
       id: 'shortfall',
       tone: 'danger',
       title: 'Your essentials need more than is available',
-      message: `There is a shortfall of ${shortfall} pence across bills and everyday needs. No essential commitment has been hidden or reduced.`,
+      message: `There is a shortfall of ${formatMoney(shortfall)} across bills and everyday needs. No essential commitment has been hidden or reduced.`,
     });
   } else if (goalPots.some((pot) => pot.allocation < pot.requested)) {
     notices.push({
@@ -347,7 +359,8 @@ export function calendarEvents(state: FinancialState, from: Date, to: Date): Fin
       detail: 'Earmarked only — this does not spend the money',
     });
     for (const goal of state.goals) {
-      if (isAfter(parseDate(income.date), parseDate(goal.targetDate))) continue;
+      const targetDate = tryParseDate(goal.targetDate);
+      if (!targetDate || isAfter(parseDate(income.date), targetDate)) continue;
       const projection = projectGoal(state, goal, parseDate(income.date));
       if (!projection.remaining || !projection.eligibleIncomeCount) continue;
       goalEvents.push({
@@ -367,12 +380,12 @@ export function calendarEvents(state: FinancialState, from: Date, to: Date): Fin
   const events = [...incomes, ...allocationEvents, ...goalEvents, ...expenses].sort(
     (a, b) => compareAsc(parseDate(a.date), parseDate(b.date)) || order[a.type] - order[b.type],
   );
-  let runningBalance = state.currentBalance;
+  let runningBalance: number | undefined = state.currentBalance ?? undefined;
   const output: FinancialEvent[] = [];
   for (const event of events) {
-    runningBalance += event.balanceImpact;
+    if (runningBalance !== undefined) runningBalance += event.balanceImpact;
     output.push({ ...event, runningBalance });
-    if (runningBalance < 0 && event.balanceImpact < 0) {
+    if (runningBalance !== undefined && runningBalance < 0 && event.balanceImpact < 0) {
       output.push({
         id: `warning-${event.id}`,
         date: event.date,

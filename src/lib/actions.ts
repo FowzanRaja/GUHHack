@@ -1,7 +1,7 @@
 import { addDays, format } from 'date-fns';
 import type { AssistantAction, FinancialPlan, FinancialState, IncomeSource } from '../types';
-import { nextScheduleDate, isoDate, parseDate } from './dates';
-import { calculatePlan } from './engine';
+import { nextScheduleDate, isoDate, parseDate, tryParseDate } from './dates';
+import { calculatePlan, projectGoal } from './engine';
 import { makeId } from './id';
 import { formatMoney } from './money';
 
@@ -14,6 +14,7 @@ export interface ActionPreview {
   beforePlan: FinancialPlan;
   afterPlan: FinancialPlan;
   canApply: boolean;
+  showBeforeAfter: boolean;
 }
 
 function touch(state: FinancialState): FinancialState {
@@ -37,16 +38,42 @@ export function previewAssistantAction(state: FinancialState, action: AssistantA
   let explanation = action.summary;
   let changes: string[] = [];
   let canApply = true;
+  let showBeforeAfter = true;
 
   switch (action.type) {
     case 'financial_profile': {
-      nextState.incomes = action.incomes.map((income) => ({ ...income, id: makeId('income') }));
-      nextState.expenses = action.expenses.map((expense) => ({ ...expense, id: makeId('expense') }));
+      const incomes = action.incomes.map((income) => ({ ...income, id: makeId('income') }));
+      const expenses = action.expenses.map((expense) => ({ ...expense, id: makeId('expense') }));
+      const goals = action.goals?.map((goal) => ({
+        ...goal,
+        id: makeId('goal'),
+        currentAmount: goal.currentAmount ?? 0,
+        colour: '#d2387c',
+      }));
+      if (action.profileMode === 'merge') {
+        nextState.incomes = mergeByName(state.incomes, incomes);
+        nextState.expenses = mergeByName(state.expenses, expenses);
+        if (goals) nextState.goals = mergeByName(state.goals, goals);
+      } else {
+        nextState.incomes = incomes;
+        nextState.expenses = expenses;
+        if (goals) nextState.goals = goals;
+        nextState.incomeOverrides = [];
+        nextState.allocationOverrides = {};
+        nextState.manualPots = [];
+      }
       if (action.currentBalance !== undefined) nextState.currentBalance = action.currentBalance;
-      title = 'Here’s what Cora understood';
+      if (action.emergencyFundContribution !== undefined) nextState.emergencyFundContribution = action.emergencyFundContribution;
+      title = action.profileMode === 'merge' ? 'Add these details to your plan' : 'Here’s the plan Cora understood';
+      explanation = action.profileMode === 'replace'
+        ? 'This will replace the income and regular costs in the current profile after you confirm. Existing goals are preserved unless they are included in the proposed profile.'
+        : 'This is the plan Cora will create from the details you provided. Nothing is saved until you confirm.';
+      showBeforeAfter = false;
       changes = [
         `${action.incomes.length} income source${action.incomes.length === 1 ? '' : 's'}`,
         `${action.expenses.length} regular cost${action.expenses.length === 1 ? '' : 's'}`,
+        ...(action.goals ? [`${action.goals.length} savings goal${action.goals.length === 1 ? '' : 's'}`] : []),
+        ...(action.emergencyFundContribution !== undefined ? [`${formatMoney(action.emergencyFundContribution)} emergency fund contribution`] : []),
         ...(action.missingInformation?.map((item) => `Optional detail: ${item}`) ?? []),
       ];
       break;
@@ -96,15 +123,21 @@ export function previewAssistantAction(state: FinancialState, action: AssistantA
             amount: action.amount,
             category: action.category ?? existing?.category ?? 'other',
             essential: action.essential ?? existing?.essential ?? true,
-            schedule: { kind: 'once', date },
+            schedule: action.permanent && !action.date ? { kind: 'monthly_allowance' } : { kind: 'once', date },
           },
         ];
         title = `Add ${name}`;
-        changes = [`${formatMoney(action.amount)} on ${format(parseDate(date), 'd MMMM yyyy')}`, 'This is treated as a one-off cost'];
+        changes = action.permanent && !action.date
+          ? [`${formatMoney(action.amount)} monthly allowance`, 'No payment date has been invented']
+          : [`${formatMoney(action.amount)} on ${format(parseDate(date), 'd MMMM yyyy')}`, 'This is treated as a one-off cost'];
       }
       break;
     }
     case 'new_goal': {
+      const targetDate = tryParseDate(action.targetDate);
+      if (!targetDate || targetDate < new Date(now.getFullYear(), now.getMonth(), now.getDate())) {
+        return unavailable(state, action, now, 'That target date is invalid or has already passed. Please choose an upcoming date.');
+      }
       nextState.goals = [
         ...state.goals,
         {
@@ -121,6 +154,41 @@ export function previewAssistantAction(state: FinancialState, action: AssistantA
         `Target: ${formatMoney(action.targetAmount)}`,
         `By ${format(parseDate(action.targetDate), 'd MMMM yyyy')}`,
       ];
+      break;
+    }
+    case 'update_goal': {
+      const goal = state.goals.find((item) => item.id === action.goalId);
+      if (!goal) return unavailable(state, action, now, 'Cora could not match the goal you want to update.');
+      if (action.targetDate) {
+        const targetDate = tryParseDate(action.targetDate);
+        if (!targetDate || targetDate < new Date(now.getFullYear(), now.getMonth(), now.getDate())) {
+          return unavailable(state, action, now, 'That target date is invalid or has already passed. Please choose an upcoming date.');
+        }
+      }
+      const updated = {
+        ...goal,
+        ...(action.name !== undefined ? { name: action.name } : {}),
+        ...(action.targetAmount !== undefined ? { targetAmount: action.targetAmount } : {}),
+        ...(action.currentAmount !== undefined ? { currentAmount: action.currentAmount } : {}),
+        ...(action.targetDate !== undefined ? { targetDate: action.targetDate } : {}),
+      };
+      updated.currentAmount = Math.min(updated.currentAmount, updated.targetAmount);
+      nextState.goals = state.goals.map((item) => item.id === goal.id ? updated : item);
+      title = `Update ${goal.name}`;
+      changes = [
+        ...(action.targetDate ? [`Deadline: ${format(parseDate(goal.targetDate), 'd MMM yyyy')} → ${format(parseDate(action.targetDate), 'd MMM yyyy')}`] : []),
+        ...(action.targetAmount !== undefined ? [`Target: ${formatMoney(goal.targetAmount)} → ${formatMoney(action.targetAmount)}`] : []),
+        ...(action.name ? [`Name: ${goal.name} → ${action.name}`] : []),
+      ];
+      break;
+    }
+    case 'goal_contribution': {
+      const goal = state.goals.find((item) => item.id === action.goalId);
+      if (!goal) return unavailable(state, action, now, 'Cora could not match the goal you want to add money to.');
+      const contribution = Math.min(action.amount, Math.max(0, goal.targetAmount - goal.currentAmount));
+      nextState.goals = state.goals.map((item) => item.id === goal.id ? { ...item, currentAmount: item.currentAmount + contribution } : item);
+      title = `Add to ${goal.name}`;
+      changes = [`Add ${formatMoney(contribution)} to saved progress`, `New progress: ${formatMoney(goal.currentAmount + contribution)} of ${formatMoney(goal.targetAmount)}`];
       break;
     }
     case 'pot_transfer': {
@@ -195,14 +263,22 @@ export function previewAssistantAction(state: FinancialState, action: AssistantA
       changes = ['This is a forecast only; your plan has not changed'];
       break;
     }
+    case 'information_request':
+      canApply = false;
+      showBeforeAfter = false;
+      title = 'Plan information';
+      changes = [];
+      break;
     case 'clarification':
       canApply = false;
+      showBeforeAfter = false;
       title = 'Cora needs one detail';
       explanation = action.question;
       changes = ['Nothing has changed'];
       break;
     case 'explanation':
       canApply = false;
+      showBeforeAfter = false;
       title = 'Cora’s answer';
       explanation = action.answer;
       changes = ['Nothing has changed'];
@@ -211,13 +287,37 @@ export function previewAssistantAction(state: FinancialState, action: AssistantA
 
   nextState = touch(nextState);
   const afterPlan = calculatePlan(nextState, now);
-  if (canApply && beforePlan.expectedIncome !== afterPlan.expectedIncome) {
+  if (canApply && action.type === 'new_goal') {
+    const goal = nextState.goals.at(-1)!;
+    const projection = projectGoal(nextState, goal, now);
+    explanation = projection.eligibleIncomeCount
+      ? `There are ${projection.eligibleIncomeCount} eligible payday${projection.eligibleIncomeCount === 1 ? '' : 's'} before the deadline, so the calculated contribution is ${formatMoney(projection.contributionPerIncome)} each time. Nothing will be taken from your balance until you confirm this plan.`
+      : `There is no known payday before this deadline. The goal can be saved, but it needs another funding date or a later target to produce a workable contribution.`;
+  }
+  if (canApply && action.type === 'update_goal') {
+    const goal = nextState.goals.find((item) => item.id === action.goalId)!;
+    const projection = projectGoal(nextState, goal, now);
+    explanation = projection.eligibleIncomeCount
+      ? `With the proposed deadline, ${formatMoney(projection.contributionPerIncome)} is needed on each of ${projection.eligibleIncomeCount} eligible payday${projection.eligibleIncomeCount === 1 ? '' : 's'}.`
+      : 'The proposed deadline has no eligible payday before it, so the goal would need another funding date or a later target.';
+  }
+  if (canApply && action.type !== 'financial_profile' && beforePlan.expectedIncome !== afterPlan.expectedIncome) {
     const difference = afterPlan.expectedIncome - beforePlan.expectedIncome;
     explanation = difference < 0
       ? `Income is ${formatMoney(Math.abs(difference))} lower for this plan. Essential commitments are protected first; savings and flexible spending adjust around them.`
       : `${formatMoney(difference)} more income is available in this plan. Your priorities have been recalculated without changing known bills.`;
   }
-  return { action, title, explanation, changes, nextState, beforePlan, afterPlan, canApply };
+  return { action, title, explanation, changes, nextState, beforePlan, afterPlan, canApply, showBeforeAfter };
+}
+
+function mergeByName<T extends { name: string }>(current: T[], incoming: T[]): T[] {
+  const merged = [...current];
+  for (const item of incoming) {
+    const index = merged.findIndex((existing) => existing.name.trim().toLowerCase() === item.name.trim().toLowerCase());
+    if (index >= 0) merged[index] = { ...item, ...('id' in merged[index] ? { id: (merged[index] as T & { id: string }).id } : {}) };
+    else merged.push(item);
+  }
+  return merged;
 }
 
 function unavailable(state: FinancialState, action: AssistantAction, now: Date, message: string): ActionPreview {
@@ -231,5 +331,6 @@ function unavailable(state: FinancialState, action: AssistantAction, now: Date, 
     beforePlan: plan,
     afterPlan: plan,
     canApply: false,
+    showBeforeAfter: false,
   };
 }

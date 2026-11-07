@@ -1,11 +1,10 @@
-import { useMemo, useRef, useState } from 'react';
+import { useRef, useState } from 'react';
 import { format } from 'date-fns';
 import {
   AlertCircle,
   Bot,
   Check,
   ChevronRight,
-  CirclePoundSterling,
   Edit3,
   Loader2,
   MessageCircleMore,
@@ -27,6 +26,7 @@ import { formatMoney } from '../lib/money';
 import { describeScheduleDay } from '../lib/demo';
 import { makeId } from '../lib/id';
 import { isoDate } from '../lib/dates';
+import { answerInformationRequest, boundedHistory } from '../lib/information';
 import { MoneyInput } from '../components/MoneyInput';
 import { Modal } from '../components/Modal';
 
@@ -43,20 +43,11 @@ const suggestedPrompts = [
 ];
 
 export function CoraView({ state, onStateChange }: CoraViewProps) {
-  const [messages, setMessages] = useState<ChatMessage[]>([
-    {
-      id: 'welcome',
-      role: 'assistant',
-      text: state.incomes.length
-        ? 'Hi! I can help you adjust this plan. Tell me what has changed and I’ll show the impact before anything is saved.'
-        : 'Hi! Tell me about your income, regular bills and what you want to save for. I’ll organise the details for you to review.',
-      timestamp: new Date().toISOString(),
-    },
-  ]);
+  const messages = state.conversation.history;
   const [draft, setDraft] = useState('');
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState('');
-  const [preview, setPreview] = useState<ActionPreview | null>(null);
+  const [preview, setPreview] = useState<ActionPreview | null>(() => state.conversation.proposal ? previewAssistantAction(state, state.conversation.proposal) : null);
   const [entryEditor, setEntryEditor] = useState<{ type: 'income' | 'expense'; item?: IncomeSource | Expense } | null>(null);
   const bottomRef = useRef<HTMLDivElement>(null);
 
@@ -66,14 +57,17 @@ export function CoraView({ state, onStateChange }: CoraViewProps) {
     setDraft('');
     setError('');
     setPreview(null);
-    setMessages((current) => [...current, { id: makeId('message'), role: 'user', text: clean, timestamp: new Date().toISOString() }]);
+    const previousHistory = state.conversation.history;
+    const userMessage: ChatMessage = { id: makeId('message'), role: 'user', text: clean, timestamp: new Date().toISOString() };
+    onStateChange({ ...state, conversation: { ...state.conversation, history: boundedHistory([...previousHistory, userMessage]), proposal: undefined } });
     setLoading(true);
     window.setTimeout(() => bottomRef.current?.scrollIntoView({ behavior: 'smooth' }), 30);
     try {
+      const { conversation: _conversation, ...financialState } = state;
       const response = await fetch('/api/assistant', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ message: clean, state }),
+        body: JSON.stringify({ message: clean, history: previousHistory, pending: state.conversation.pending, state: financialState }),
       });
       const responseText = await response.text();
       let data: { message?: string; action?: Parameters<typeof previewAssistantAction>[1] };
@@ -84,13 +78,36 @@ export function CoraView({ state, onStateChange }: CoraViewProps) {
         throw new Error('Cora returned an invalid response. Please try again or use the manual controls.');
       }
       if (!response.ok || !data.action || !data.message) throw new Error(data.message || 'Cora could not respond just now.');
-      const nextPreview = previewAssistantAction(state, data.action);
-      setPreview(nextPreview);
-      setMessages((current) => [...current, { id: makeId('message'), role: 'assistant', text: data.message!, timestamp: new Date().toISOString() }]);
+      const pending = data.action.type === 'clarification' ? data.action.pending : undefined;
+      const proposalBaseState: FinancialState = {
+        ...state,
+        conversation: { history: boundedHistory([...previousHistory, userMessage]), pending },
+      };
+      const calculatedPreview = previewAssistantAction(proposalBaseState, data.action);
+      const assistantText = data.action.type === 'information_request'
+        ? answerInformationRequest(state, data.action)
+        : data.action.type === 'clarification'
+          ? data.action.question
+          : data.action.type === 'explanation'
+            ? data.action.answer
+            : calculatedPreview.explanation;
+      const assistantMessage: ChatMessage = { id: makeId('message'), role: 'assistant', text: assistantText, timestamp: new Date().toISOString() };
+      const stateWithConversation: FinancialState = {
+        ...state,
+        conversation: { history: boundedHistory([...previousHistory, userMessage, assistantMessage]), pending },
+      };
+      const nextPreview = previewAssistantAction(stateWithConversation, data.action);
+      if (nextPreview.canApply) stateWithConversation.conversation.proposal = data.action;
+      onStateChange(stateWithConversation);
+      setPreview(nextPreview.canApply ? nextPreview : null);
     } catch (caught) {
       const message = caught instanceof Error ? caught.message : 'Cora could not respond just now.';
       setError(message);
-      setMessages((current) => [...current, { id: makeId('message'), role: 'assistant', text: 'I couldn’t connect to the AI service. Nothing has changed. You can still use the manual controls beside this chat.', timestamp: new Date().toISOString() }]);
+      const assistantMessage: ChatMessage = { id: makeId('message'), role: 'assistant', text: 'I couldn’t connect to the AI service. Nothing has changed. You can still use the manual controls beside this chat.', timestamp: new Date().toISOString() };
+      onStateChange({
+        ...state,
+        conversation: { ...state.conversation, history: boundedHistory([...previousHistory, userMessage, assistantMessage]), proposal: undefined },
+      });
     } finally {
       setLoading(false);
       window.setTimeout(() => bottomRef.current?.scrollIntoView({ behavior: 'smooth' }), 30);
@@ -100,23 +117,36 @@ export function CoraView({ state, onStateChange }: CoraViewProps) {
   function showDemoAdjustment() {
     const salary = state.incomes[0];
     if (!salary) return;
-    setPreview(previewAssistantAction(state, {
-      type: 'temporary_income_change',
+    const userMessage: ChatMessage = { id: makeId('message'), role: 'user', text: 'I’m only getting paid £1,200 this month instead of £1,800.', timestamp: new Date().toISOString() };
+    const assistantMessage: ChatMessage = { id: makeId('message'), role: 'assistant', text: 'I’ve prepared a one-off adjustment for your next salary. Your regular salary stays unchanged. Review the impact below before applying it.', timestamp: new Date().toISOString() };
+    const action = {
+      type: 'temporary_income_change' as const,
       summary: 'Reduce the next salary payment for this month only.',
       incomeSourceId: salary.id,
       amount: 120000,
-    }));
-    setMessages((current) => [...current,
-      { id: makeId('message'), role: 'user', text: 'I’m only getting paid £1,200 this month instead of £1,800.', timestamp: new Date().toISOString() },
-      { id: makeId('message'), role: 'assistant', text: 'I’ve prepared a one-off adjustment for your next salary. Your regular salary stays unchanged. Review the impact below before applying it.', timestamp: new Date().toISOString() },
-    ]);
+    };
+    const stateWithConversation: FinancialState = {
+      ...state,
+      conversation: { history: boundedHistory([...state.conversation.history, userMessage, assistantMessage]), proposal: action },
+    };
+    onStateChange(stateWithConversation);
+    setPreview(previewAssistantAction(stateWithConversation, action));
   }
 
   function applyPreview() {
     if (!preview?.canApply) return;
-    onStateChange(preview.nextState, 'Cora’s proposed change was applied across Pots, goals and the calendar.');
-    setMessages((current) => [...current, { id: makeId('message'), role: 'assistant', text: 'Done — I’ve updated your shared plan. The Overview, Pots and calendar now use the new figures.', timestamp: new Date().toISOString() }]);
+    const done: ChatMessage = { id: makeId('message'), role: 'assistant', text: 'Done — I’ve updated your shared plan. The Overview, Pots and calendar now use the new figures.', timestamp: new Date().toISOString() };
+    const nextState: FinancialState = {
+      ...preview.nextState,
+      conversation: { history: boundedHistory([...preview.nextState.conversation.history, done]), pending: undefined, proposal: undefined },
+    };
+    onStateChange(nextState, 'Cora’s proposed change was applied across Pots, goals and the calendar.');
     setPreview(null);
+  }
+
+  function dismissPreview() {
+    setPreview(null);
+    onStateChange({ ...state, conversation: { ...state.conversation, proposal: undefined } }, 'The proposed change was not applied.');
   }
 
   function saveEntry(item: IncomeSource | Expense) {
@@ -149,7 +179,7 @@ export function CoraView({ state, onStateChange }: CoraViewProps) {
           <div className="chat-messages" aria-live="polite">
             {messages.map((message) => <ChatBubble message={message} key={message.id} />)}
             {loading && <div className="flex items-end gap-2"><div className="chat-avatar-small"><Bot size={15} /></div><div className="chat-bubble chat-bubble-assistant flex items-center gap-2 text-slate-500"><Loader2 size={16} className="animate-spin" /> Cora is checking your plan…</div></div>}
-            {preview && <ProposalCard preview={preview} onApply={applyPreview} onDismiss={() => setPreview(null)} />}
+            {preview && <ProposalCard preview={preview} onApply={applyPreview} onDismiss={dismissPreview} />}
             {error && <div className="flex items-start gap-2 rounded-xl border border-amber-200 bg-amber-50 p-3 text-xs leading-5 text-amber-900" role="alert"><AlertCircle size={16} className="mt-0.5 shrink-0" /><span>{error}</span></div>}
             <div ref={bottomRef} />
           </div>
@@ -175,7 +205,10 @@ export function CoraView({ state, onStateChange }: CoraViewProps) {
             <div><span className="eyebrow"><Settings2 size={13} /> Manual controls</span><h2 className="section-title">Your details</h2><p className="section-subtitle">Add or correct anything without AI.</p></div>
           </div>
           <div className="mt-5 rounded-2xl bg-cora-50 p-4">
-            <MoneyInput id="current-balance" label="Available balance today" value={state.currentBalance} onChange={(value) => onStateChange({ ...state, currentBalance: value }, 'Available balance updated.')} hint="Used only for cash-flow forecasts" />
+            <MoneyInput id="current-balance" label="Available balance today" value={state.currentBalance ?? 0} onChange={(value) => onStateChange({ ...state, currentBalance: value }, 'Available balance updated.')} hint="Used only for cash-flow forecasts" />
+            {state.currentBalance === null
+              ? <p className="mt-2 text-[11px] text-amber-800">Not provided — cash-flow shortfall warnings are paused.</p>
+              : <button onClick={() => onStateChange({ ...state, currentBalance: null }, 'Available balance marked as unknown.')} className="mt-2 text-[11px] font-semibold text-cora-700 underline">Mark balance as unknown</button>}
           </div>
 
           <ManualSection title="Income" addLabel="Add income" onAdd={() => setEntryEditor({ type: 'income' })}>
@@ -224,7 +257,7 @@ function ProposalCard({ preview, onApply, onDismiss }: { preview: ActionPreview;
       {preview.canApply && (
         <div className="mt-4 grid grid-cols-2 gap-2 sm:grid-cols-4">
           {figures.map(([label, before, after]) => {
-            const changed = before !== after;
+            const changed = preview.showBeforeAfter && before !== after;
             return <div className={`proposal-figure ${changed ? 'proposal-figure-changed' : ''}`} key={String(label)}><span>{label}</span><strong>{formatMoney(Number(after), { compact: true })}</strong>{changed && <small>was {formatMoney(Number(before), { compact: true })}</small>}</div>;
           })}
         </div>
@@ -248,6 +281,7 @@ function EmptyRow({ text }: { text: string }) { return <p className="rounded-xl 
 function scheduleLabel(schedule: Schedule): string {
   if (schedule.kind === 'once') return format(new Date(`${schedule.date}T12:00:00`), 'd MMM yyyy');
   if (schedule.kind === 'monthly') return describeScheduleDay(schedule.day);
+  if (schedule.kind === 'monthly_allowance') return 'Monthly allowance · no fixed date';
   if (schedule.kind === 'weekly') return 'Weekly';
   if (schedule.kind === 'fortnightly') return 'Every 2 weeks';
   return `Every ${schedule.everyDays} days`;
@@ -264,6 +298,7 @@ function EntryModal({ type, item, onClose, onSave }: { type: 'income' | 'expense
   function changeKind(kind: Schedule['kind']) {
     const today = isoDate(new Date());
     if (kind === 'monthly') setSchedule({ kind, day: 1 });
+    if (kind === 'monthly_allowance') setSchedule({ kind });
     if (kind === 'once') setSchedule({ kind, date: today });
     if (kind === 'weekly' || kind === 'fortnightly') setSchedule({ kind, anchorDate: today });
     if (kind === 'interval') setSchedule({ kind, anchorDate: today, everyDays: 10 });
@@ -277,7 +312,7 @@ function EntryModal({ type, item, onClose, onSave }: { type: 'income' | 'expense
       <div className="space-y-4">
         <label className="form-field"><span className="form-label">Name</span><input autoFocus className="text-input focus-ring" value={name} onChange={(event) => setName(event.target.value)} placeholder={isExpense ? 'e.g. Rent' : 'e.g. Salary'} /></label>
         <MoneyInput id="entry-amount" label={isExpense ? 'Payment amount' : 'Amount received'} value={amount} onChange={setAmount} />
-        <label className="form-field"><span className="form-label">Schedule</span><select className="text-input focus-ring" value={schedule.kind} onChange={(event) => changeKind(event.target.value as Schedule['kind'])}><option value="monthly">Monthly</option><option value="weekly">Weekly</option><option value="fortnightly">Fortnightly</option><option value="once">One-off date</option><option value="interval">Every N days</option></select></label>
+        <label className="form-field"><span className="form-label">Schedule</span><select className="text-input focus-ring" value={schedule.kind} onChange={(event) => changeKind(event.target.value as Schedule['kind'])}><option value="monthly">Monthly on a date</option>{isExpense && <option value="monthly_allowance">Monthly allowance · no fixed date</option>}<option value="weekly">Weekly</option><option value="fortnightly">Fortnightly</option><option value="once">One-off date</option><option value="interval">Every N days</option></select></label>
         <ScheduleInput schedule={schedule} onChange={setSchedule} />
         {isExpense && <div className="grid gap-4 sm:grid-cols-2"><label className="form-field"><span className="form-label">Category</span><select className="text-input focus-ring" value={category} onChange={(event) => setCategory(event.target.value as Expense['category'])}><option value="bills">Bills</option><option value="food">Food & essentials</option><option value="transport">Transport</option><option value="subscriptions">Subscriptions</option><option value="personal">Personal</option><option value="other">Other</option></select></label><label className="mt-7 flex items-center gap-2 rounded-xl border border-slate-200 px-3 py-2.5 text-sm font-semibold text-slate-700"><input type="checkbox" checked={essential} onChange={(event) => setEssential(event.target.checked)} className="rounded border-slate-300 text-cora-700 focus:ring-cora-500" /> Essential commitment</label></div>}
       </div>
@@ -288,6 +323,7 @@ function EntryModal({ type, item, onClose, onSave }: { type: 'income' | 'expense
 
 function ScheduleInput({ schedule, onChange }: { schedule: Schedule; onChange: (schedule: Schedule) => void }) {
   if (schedule.kind === 'monthly') return <label className="form-field"><span className="form-label">Day of month</span><input type="number" min="1" max="31" className="text-input focus-ring" value={schedule.day} onChange={(event) => onChange({ ...schedule, day: Math.min(31, Math.max(1, Number(event.target.value))) })} /><span className="form-hint">The 31st automatically becomes the last day of shorter months.</span></label>;
+  if (schedule.kind === 'monthly_allowance') return <p className="rounded-xl bg-blue-50 px-3 py-2.5 text-xs leading-5 text-blue-900">This amount is included in the monthly Pots without inventing a payment date or reducing the forecast balance on one arbitrary day.</p>;
   if (schedule.kind === 'once') return <label className="form-field"><span className="form-label">Date</span><input type="date" className="text-input focus-ring" value={schedule.date} onChange={(event) => onChange({ ...schedule, date: event.target.value })} /></label>;
   return <div className="grid gap-4 sm:grid-cols-2"><label className="form-field"><span className="form-label">First known date</span><input type="date" className="text-input focus-ring" value={schedule.anchorDate} onChange={(event) => onChange({ ...schedule, anchorDate: event.target.value })} /></label>{schedule.kind === 'interval' && <label className="form-field"><span className="form-label">Repeat every</span><span className="flex items-center gap-2"><input type="number" min="1" max="365" className="text-input focus-ring" value={schedule.everyDays} onChange={(event) => onChange({ ...schedule, everyDays: Math.max(1, Number(event.target.value)) })} /><span className="text-sm text-slate-500">days</span></span></label>}</div>;
 }

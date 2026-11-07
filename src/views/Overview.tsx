@@ -18,7 +18,7 @@ import {
 import type { FinancialPlan, FinancialState, PlannedPot } from '../types';
 import { forecastNextDays } from '../lib/engine';
 import { formatMoney } from '../lib/money';
-import { parseDate } from '../lib/dates';
+import { parseDate, tryParseDate } from '../lib/dates';
 import { format } from 'date-fns';
 import { Modal } from '../components/Modal';
 import { MoneyInput } from '../components/MoneyInput';
@@ -171,7 +171,7 @@ export function Overview({ state, plan, onNavigate, onLoadDemo, onSetAllocation,
           <div className="min-w-0 flex-1">
             <span className="text-xs font-bold uppercase tracking-widest text-cora-200">Goal in progress</span>
             <h2 className="mt-1 text-xl font-bold text-white">{state.goals[0].name}</h2>
-            <p className="mt-1 text-sm text-cora-100">{formatMoney(state.goals[0].currentAmount)} saved of {formatMoney(state.goals[0].targetAmount)} by {format(parseDate(state.goals[0].targetDate), 'd MMMM yyyy')}</p>
+            <p className="mt-1 text-sm text-cora-100">{formatMoney(state.goals[0].currentAmount)} saved of {formatMoney(state.goals[0].targetAmount)} · {tryParseDate(state.goals[0].targetDate) ? `target ${format(tryParseDate(state.goals[0].targetDate)!, 'd MMMM yyyy')}` : 'target date needs correcting'}</p>
           </div>
           <button onClick={() => onNavigate('goals')} className="button-on-dark button-secondary focus-ring">See progress <ChevronRight size={16} /></button>
         </section>

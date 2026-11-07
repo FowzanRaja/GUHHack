@@ -3,6 +3,7 @@ export type Money = number;
 export type Schedule =
   | { kind: 'once'; date: string }
   | { kind: 'monthly'; day: number }
+  | { kind: 'monthly_allowance' }
   | { kind: 'weekly'; anchorDate: string }
   | { kind: 'fortnightly'; anchorDate: string }
   | { kind: 'interval'; anchorDate: string; everyDays: number };
@@ -58,15 +59,17 @@ export interface IncomeOverride {
 }
 
 export interface FinancialState {
-  version: 1;
+  version: 2;
   customerName: string;
-  currentBalance: Money;
+  currentBalance: Money | null;
   incomes: IncomeSource[];
   expenses: Expense[];
   goals: SavingsGoal[];
   manualPots: ManualPot[];
   incomeOverrides: IncomeOverride[];
   allocationOverrides: Record<string, Money>;
+  emergencyFundContribution: Money | null;
+  conversation: ConversationState;
   simplifiedMode: boolean;
   isDemo: boolean;
   lastUpdated: string;
@@ -123,6 +126,7 @@ export type AssistantAction =
   | {
       type: 'financial_profile';
       summary: string;
+      profileMode: 'create' | 'replace' | 'merge';
       incomes: Array<{ name: string; amount: Money; schedule: Schedule }>;
       expenses: Array<{
         name: string;
@@ -132,6 +136,13 @@ export type AssistantAction =
         schedule: Schedule;
       }>;
       currentBalance?: Money;
+      goals?: Array<{
+        name: string;
+        targetAmount: Money;
+        currentAmount?: Money;
+        targetDate: string;
+      }>;
+      emergencyFundContribution?: Money;
       missingInformation?: string[];
     }
   | {
@@ -167,6 +178,21 @@ export type AssistantAction =
       targetDate: string;
     }
   | {
+      type: 'update_goal';
+      summary: string;
+      goalId: string;
+      name?: string;
+      targetAmount?: Money;
+      currentAmount?: Money;
+      targetDate?: string;
+    }
+  | {
+      type: 'goal_contribution';
+      summary: string;
+      goalId: string;
+      amount: Money;
+    }
+  | {
       type: 'pot_transfer';
       summary: string;
       fromPotId: string;
@@ -187,7 +213,13 @@ export type AssistantAction =
       incomeReduction?: Money;
       month?: string;
     }
-  | { type: 'clarification'; summary: string; question: string }
+  | {
+      type: 'information_request';
+      summary: string;
+      topic: 'monthly_costs' | 'next_payday' | 'savings' | 'personal_spending' | 'upcoming_bills' | 'goal_progress';
+      goalId?: string;
+    }
+  | { type: 'clarification'; summary: string; question: string; pending: PendingAssistantAction }
   | { type: 'explanation'; summary: string; answer: string };
 
 export interface AssistantResponse {
@@ -200,4 +232,28 @@ export interface ChatMessage {
   role: 'assistant' | 'user';
   text: string;
   timestamp: string;
+}
+
+export interface PendingAssistantAction {
+  intent: 'new_goal' | 'update_goal' | 'financial_profile' | 'expense_change' | 'income_change';
+  known: {
+    name?: string;
+    targetAmount?: Money;
+    currentAmount?: Money;
+    targetDate?: string;
+    targetMonth?: string;
+    goalId?: string;
+    amount?: Money;
+    date?: string;
+    permanent?: boolean;
+  };
+  missing: Array<'name' | 'targetAmount' | 'targetDate' | 'goalId' | 'amount' | 'date'>;
+  question: string;
+  createdAt: string;
+}
+
+export interface ConversationState {
+  history: ChatMessage[];
+  pending?: PendingAssistantAction;
+  proposal?: AssistantAction;
 }

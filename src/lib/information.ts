@@ -1,6 +1,6 @@
 import { addDays, format } from 'date-fns';
 import type { AssistantAction, FinancialState } from '../types';
-import { calculatePlan, expenseAmountForMonth, expenseEventsForRange, incomeEventsForRange, projectGoal } from './engine';
+import { calculatePlan, expenseAmountForMonth, expenseEventsForRange, goalPaydayBreakdown, incomeEventsForRange } from './engine';
 import { formatMoney } from './money';
 import { parseDate } from './dates';
 
@@ -24,8 +24,10 @@ export function answerInformationRequest(state: FinancialState, action: Informat
     }
     case 'next_payday': {
       const next = incomeEventsForRange(state, now, addDays(now, 400)).sort((a, b) => a.date.localeCompare(b.date))[0];
+      const source = next?.sourceId ? state.incomes.find((income) => income.id === next.sourceId) : undefined;
+      const temporary = source && source.amount !== next?.amount;
       return next
-        ? `Your next known income is ${formatMoney(next.amount)} from ${next.name} on ${format(parseDate(next.date), 'd MMMM yyyy')}.`
+        ? `Your next known income is ${formatMoney(next.amount)} from ${next.name} on ${format(parseDate(next.date), 'd MMMM yyyy')}.${temporary ? ` This is a temporary adjustment; the regular amount remains ${formatMoney(source.amount)}.` : ''}`
         : 'There is no upcoming income date in the plan yet.';
     }
     case 'savings':
@@ -42,12 +44,16 @@ export function answerInformationRequest(state: FinancialState, action: Informat
     case 'goal_progress': {
       const goal = (action.goalId ? state.goals.find((item) => item.id === action.goalId) : undefined) ?? state.goals[0];
       if (!goal) return 'You do not have a savings goal in the plan yet.';
-      const projection = projectGoal(state, goal, now);
-      if (!projection.validDeadline) return `${goal.name} has an invalid target date. Please edit the goal before relying on its projection.`;
-      if (!projection.eligibleIncomeCount && projection.remaining) return `${goal.name} has ${formatMoney(projection.remaining)} left, but there is no eligible payday before its current deadline.`;
-      return `${goal.name} has ${formatMoney(goal.currentAmount)} saved of ${formatMoney(goal.targetAmount)}. The plan suggests ${formatMoney(projection.contributionPerIncome)} on each of ${projection.eligibleIncomeCount} eligible payday${projection.eligibleIncomeCount === 1 ? '' : 's'} before the deadline.`;
+      const breakdown = goalPaydayBreakdown(state, goal, now);
+      if (!tryDate(goal.targetDate)) return `${goal.name} has an invalid target date. Please edit the goal before relying on its projection.`;
+      if (!breakdown.eligiblePaydays && breakdown.remaining) return `${goal.name} has ${formatMoney(breakdown.remaining)} left, but there is no eligible payday before its current deadline.`;
+      return `${goal.name} has ${formatMoney(goal.currentAmount)} saved of ${formatMoney(goal.targetAmount)}, leaving ${formatMoney(breakdown.remaining)}. The affordable recommendation for the next eligible payday is ${formatMoney(breakdown.recommendedContribution)}.${breakdown.onTrack ? ' The current schedule is on track.' : ' At the current affordable rate, the deadline needs adjusting.'}`;
     }
   }
+}
+
+function tryDate(value: string): boolean {
+  return /^\d{4}-\d{2}-\d{2}$/.test(value) && !Number.isNaN(new Date(`${value}T12:00:00`).getTime());
 }
 
 export function boundedHistory<T>(history: T[], limit = 24): T[] {

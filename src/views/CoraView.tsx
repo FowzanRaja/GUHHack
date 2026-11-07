@@ -1,5 +1,5 @@
 import { useEffect, useRef, useState } from 'react';
-import { format } from 'date-fns';
+import { addDays, format } from 'date-fns';
 import {
   AlertCircle,
   Bot,
@@ -30,10 +30,13 @@ import { answerInformationRequest, boundedHistory } from '../lib/information';
 import { MoneyInput } from '../components/MoneyInput';
 import { Modal } from '../components/Modal';
 import { SavingsGoalsSection } from './GoalsView';
+import { incomeEventsForRange } from '../lib/engine';
+
+type FinancialStateUpdate = FinancialState | ((current: FinancialState) => FinancialState);
 
 interface CoraViewProps {
   state: FinancialState;
-  onStateChange: (state: FinancialState, announcement?: string) => void;
+  onStateChange: (state: FinancialStateUpdate, announcement?: string) => void;
   onSaveGoal: (goal: SavingsGoal) => void;
   onDeleteGoal: (id: string) => void;
 }
@@ -49,8 +52,10 @@ export function CoraView({ state, onStateChange, onSaveGoal, onDeleteGoal }: Cor
   const bottomRef = useRef<HTMLDivElement>(null);
   const textareaRef = useRef<HTMLTextAreaElement>(null);
   const composingRef = useRef(false);
+  const stateRef = useRef(state);
   const balanceDirty = balanceDraft !== state.currentBalance;
 
+  useEffect(() => { stateRef.current = state; }, [state]);
   useEffect(() => setBalanceDraft(state.currentBalance), [state.currentBalance]);
   useEffect(() => {
     const textarea = textareaRef.current;
@@ -68,7 +73,7 @@ export function CoraView({ state, onStateChange, onSaveGoal, onDeleteGoal }: Cor
     setPreview(null);
     const previousHistory = state.conversation.history;
     const userMessage: ChatMessage = { id: makeId('message'), role: 'user', text: clean, timestamp: new Date().toISOString() };
-    onStateChange({ ...state, conversation: { ...state.conversation, history: boundedHistory([...previousHistory, userMessage]), proposal: undefined } });
+    onStateChange((current) => ({ ...current, conversation: { ...current.conversation, history: boundedHistory([...previousHistory, userMessage]), proposal: undefined } }));
     setLoading(true);
     window.setTimeout(() => bottomRef.current?.scrollIntoView({ behavior: 'smooth' }), 30);
     try {
@@ -88,13 +93,17 @@ export function CoraView({ state, onStateChange, onSaveGoal, onDeleteGoal }: Cor
       }
       if (!response.ok || !data.action || !data.message) throw new Error(data.message || 'Cora could not respond just now.');
       const pending = data.action.type === 'clarification' ? data.action.pending : undefined;
+      const latestState = stateRef.current;
+      const conversationHistory = latestState.conversation.history.some((message) => message.id === userMessage.id)
+        ? latestState.conversation.history
+        : boundedHistory([...latestState.conversation.history, userMessage]);
       const proposalBaseState: FinancialState = {
-        ...state,
-        conversation: { history: boundedHistory([...previousHistory, userMessage]), pending },
+        ...latestState,
+        conversation: { history: conversationHistory, pending },
       };
       const calculatedPreview = previewAssistantAction(proposalBaseState, data.action);
       const assistantText = data.action.type === 'information_request'
-        ? answerInformationRequest(state, data.action)
+        ? answerInformationRequest(latestState, data.action)
         : data.action.type === 'clarification'
           ? data.action.question
           : data.action.type === 'explanation'
@@ -102,8 +111,8 @@ export function CoraView({ state, onStateChange, onSaveGoal, onDeleteGoal }: Cor
             : calculatedPreview.explanation;
       const assistantMessage: ChatMessage = { id: makeId('message'), role: 'assistant', text: assistantText, timestamp: new Date().toISOString() };
       const stateWithConversation: FinancialState = {
-        ...state,
-        conversation: { history: boundedHistory([...previousHistory, userMessage, assistantMessage]), pending },
+        ...latestState,
+        conversation: { history: boundedHistory([...conversationHistory, assistantMessage]), pending },
       };
       const nextPreview = previewAssistantAction(stateWithConversation, data.action);
       if (nextPreview.canApply) stateWithConversation.conversation.proposal = data.action;
@@ -113,10 +122,10 @@ export function CoraView({ state, onStateChange, onSaveGoal, onDeleteGoal }: Cor
       const message = caught instanceof Error ? caught.message : 'Cora could not respond just now.';
       setError(message);
       const assistantMessage: ChatMessage = { id: makeId('message'), role: 'assistant', text: 'I couldn’t connect to the AI service. Nothing has changed. You can still use the manual controls beside this chat.', timestamp: new Date().toISOString() };
-      onStateChange({
-        ...state,
-        conversation: { ...state.conversation, history: boundedHistory([...previousHistory, userMessage, assistantMessage]), proposal: undefined },
-      });
+      onStateChange((current) => ({
+        ...current,
+        conversation: { ...current.conversation, history: boundedHistory([...current.conversation.history.filter((item) => item.id !== userMessage.id), userMessage, assistantMessage]), proposal: undefined },
+      }));
     } finally {
       setLoading(false);
       window.setTimeout(() => bottomRef.current?.scrollIntoView({ behavior: 'smooth' }), 30);
@@ -161,11 +170,26 @@ export function CoraView({ state, onStateChange, onSaveGoal, onDeleteGoal }: Cor
   function saveEntry(item: IncomeSource | Expense) {
     if (entryEditor?.type === 'income') {
       const income = item as IncomeSource;
-      onStateChange({ ...state, incomes: state.incomes.some((entry) => entry.id === income.id) ? state.incomes.map((entry) => entry.id === income.id ? income : entry) : [...state.incomes, income] }, 'Income details saved.');
+      onStateChange((current) => {
+        const previous = current.incomes.find((entry) => entry.id === income.id);
+        const scheduleChanged = previous && JSON.stringify(previous.schedule) !== JSON.stringify(income.schedule);
+        return {
+          ...current,
+          incomes: current.incomes.some((entry) => entry.id === income.id) ? current.incomes.map((entry) => entry.id === income.id ? income : entry) : [...current.incomes, income],
+          incomeOverrides: scheduleChanged ? current.incomeOverrides.filter((override) => override.sourceId !== income.id) : current.incomeOverrides,
+        };
+      }, 'Income details saved.');
     } else {
       const expense = item as Expense;
-      onStateChange({ ...state, expenses: state.expenses.some((entry) => entry.id === expense.id) ? state.expenses.map((entry) => entry.id === expense.id ? expense : entry) : [...state.expenses, expense] }, 'Cost details saved.');
+      onStateChange((current) => ({ ...current, expenses: current.expenses.some((entry) => entry.id === expense.id) ? current.expenses.map((entry) => entry.id === expense.id ? expense : entry) : [...current.expenses, expense] }), 'Cost details saved.');
     }
+    setEntryEditor(null);
+  }
+
+  function deleteEntry(type: 'income' | 'expense', item: IncomeSource | Expense) {
+    if (!window.confirm(`Delete ${item.name}? Future calendar events and plan calculations will be updated.`)) return;
+    if (type === 'income') onStateChange((current) => ({ ...current, incomes: current.incomes.filter((entry) => entry.id !== item.id), incomeOverrides: current.incomeOverrides.filter((override) => override.sourceId !== item.id) }), 'Income removed.');
+    else onStateChange((current) => ({ ...current, expenses: current.expenses.filter((entry) => entry.id !== item.id) }), 'Cost removed.');
     setEntryEditor(null);
   }
 
@@ -215,19 +239,18 @@ export function CoraView({ state, onStateChange, onSaveGoal, onDeleteGoal }: Cor
               : <button onClick={() => setBalanceDraft(null)} className="mt-2 text-[11px] font-semibold text-cora-700 underline">Mark balance as unknown</button>}
             <div className="mt-4 flex justify-end gap-2 border-t border-cora-100 pt-3">
               <button disabled={!balanceDirty} onClick={() => setBalanceDraft(state.currentBalance)} className="button-secondary button-small focus-ring disabled:cursor-not-allowed disabled:opacity-50">Cancel</button>
-              <button disabled={!balanceDirty} onClick={() => onStateChange({ ...state, currentBalance: balanceDraft, balanceAsOf: balanceDraft === null ? null : isoDate(new Date()) }, balanceDraft === null ? 'Available balance marked as unknown.' : 'Available balance saved for today.')} className="button-primary button-small focus-ring disabled:cursor-not-allowed disabled:opacity-50">Save changes</button>
+              <button disabled={!balanceDirty} onClick={() => onStateChange((current) => ({ ...current, currentBalance: balanceDraft, balanceAsOf: balanceDraft === null ? null : isoDate(new Date()) }), balanceDraft === null ? 'Available balance marked as unknown.' : 'Available balance saved for today.')} className="button-primary button-small focus-ring disabled:cursor-not-allowed disabled:opacity-50">Save changes</button>
             </div>
           </div>
 
           <ManualSection title="Income" addLabel="Add income" onAdd={() => setEntryEditor({ type: 'income' })}>
-            {state.incomes.map((income) => <ManualRow key={income.id} name={income.name} amount={income.amount} detail={scheduleLabel(income.schedule)} onEdit={() => setEntryEditor({ type: 'income', item: income })} onDelete={() => onStateChange({ ...state, incomes: state.incomes.filter((item) => item.id !== income.id) }, 'Income removed.')} />)}
+            {state.incomes.map((income) => <ManualRow key={income.id} name={income.name} amount={income.amount} detail={incomeScheduleLabel(state, income)} onEdit={() => setEntryEditor({ type: 'income', item: income })} onDelete={() => deleteEntry('income', income)} />)}
             {!state.incomes.length && <EmptyRow text="No income added yet" />}
           </ManualSection>
 
           <ManualSection title="Regular costs" addLabel="Add cost" onAdd={() => setEntryEditor({ type: 'expense' })}>
-            {state.expenses.slice(0, 6).map((expense) => <ManualRow key={expense.id} name={expense.name} amount={expense.amount} detail={`${scheduleLabel(expense.schedule)}${expense.essential ? ' · Essential' : ''}`} onEdit={() => setEntryEditor({ type: 'expense', item: expense })} onDelete={() => onStateChange({ ...state, expenses: state.expenses.filter((item) => item.id !== expense.id) }, 'Cost removed.')} />)}
+            {state.expenses.map((expense) => <ManualRow key={expense.id} name={expense.name} amount={expense.amount} detail={`${scheduleLabel(expense.schedule)}${expense.essential ? ' · Essential' : ''}`} onEdit={() => setEntryEditor({ type: 'expense', item: expense })} onDelete={() => deleteEntry('expense', expense)} />)}
             {!state.expenses.length && <EmptyRow text="No costs added yet" />}
-            {state.expenses.length > 6 && <p className="pt-2 text-center text-xs text-slate-500">+{state.expenses.length - 6} more costs</p>}
           </ManualSection>
 
           <div className="mt-6 rounded-2xl border border-cora-100 bg-white p-4 text-xs leading-5 text-slate-600"><strong className="block text-cora-950">You stay in control</strong>Cora proposes changes. The calculation engine checks them, and nothing is saved until you confirm.</div>
@@ -238,7 +261,7 @@ export function CoraView({ state, onStateChange, onSaveGoal, onDeleteGoal }: Cor
         <SavingsGoalsSection state={state} onSave={onSaveGoal} onDelete={onDeleteGoal} onAskCora={() => { textareaRef.current?.focus(); window.scrollTo({ top: 0, behavior: 'smooth' }); }} embedded />
       </section>
 
-      {entryEditor && <EntryModal type={entryEditor.type} item={entryEditor.item} onClose={() => setEntryEditor(null)} onSave={saveEntry} />}
+      {entryEditor && <EntryModal type={entryEditor.type} item={entryEditor.item} onClose={() => setEntryEditor(null)} onSave={saveEntry} onDelete={entryEditor.item ? () => deleteEntry(entryEditor.type, entryEditor.item!) : undefined} />}
     </div>
   );
 }
@@ -299,7 +322,14 @@ function scheduleLabel(schedule: Schedule): string {
   return `Every ${schedule.everyDays} days`;
 }
 
-function EntryModal({ type, item, onClose, onSave }: { type: 'income' | 'expense'; item?: IncomeSource | Expense; onClose: () => void; onSave: (item: IncomeSource | Expense) => void }) {
+function incomeScheduleLabel(state: FinancialState, income: IncomeSource): string {
+  const next = incomeEventsForRange(state, new Date(), addDays(new Date(), 400)).filter((event) => event.sourceId === income.id).sort((a, b) => a.date.localeCompare(b.date))[0];
+  const nextLabel = next ? ` · Next ${format(new Date(`${next.date}T12:00:00`), 'd MMM')}: ${formatMoney(next.amount, { compact: true })}` : '';
+  const temporary = next && next.amount !== income.amount ? ' temporary' : '';
+  return `${scheduleLabel(income.schedule)} · Regular ${formatMoney(income.amount, { compact: true })}${nextLabel}${temporary}`;
+}
+
+function EntryModal({ type, item, onClose, onSave, onDelete }: { type: 'income' | 'expense'; item?: IncomeSource | Expense; onClose: () => void; onSave: (item: IncomeSource | Expense) => void; onDelete?: () => void }) {
   const isExpense = type === 'expense';
   const existing = item as Expense | undefined;
   const [name, setName] = useState(item?.name ?? '');
@@ -328,7 +358,7 @@ function EntryModal({ type, item, onClose, onSave }: { type: 'income' | 'expense
         <ScheduleInput schedule={schedule} onChange={setSchedule} />
         {isExpense && <div className="grid gap-4 sm:grid-cols-2"><label className="form-field"><span className="form-label">Category</span><select className="text-input focus-ring" value={category} onChange={(event) => setCategory(event.target.value as Expense['category'])}><option value="bills">Bills</option><option value="food">Food & essentials</option><option value="transport">Transport</option><option value="subscriptions">Subscriptions</option><option value="personal">Personal</option><option value="other">Other</option></select></label><label className="mt-7 flex items-center gap-2 rounded-xl border border-slate-200 px-3 py-2.5 text-sm font-semibold text-slate-700"><input type="checkbox" checked={essential} onChange={(event) => setEssential(event.target.checked)} className="rounded border-slate-300 text-cora-700 focus:ring-cora-500" /> Essential commitment</label></div>}
       </div>
-      <div className="modal-actions"><button onClick={onClose} className="button-secondary focus-ring">Cancel</button><button disabled={!name.trim() || amount <= 0} onClick={submit} className="button-primary focus-ring disabled:opacity-50">Save details</button></div>
+      <div className="modal-actions">{onDelete && <button onClick={onDelete} className="mr-auto inline-flex items-center gap-1.5 rounded-xl px-4 py-3 text-sm font-bold text-red-600 hover:bg-red-50 focus-ring"><Trash2 size={16} />Delete</button>}<button onClick={onClose} className="button-secondary focus-ring">Cancel</button><button disabled={!name.trim() || amount <= 0} onClick={submit} className="button-primary focus-ring disabled:opacity-50">Save details</button></div>
     </Modal>
   );
 }

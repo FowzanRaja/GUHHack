@@ -1,5 +1,5 @@
 import type { ReactNode } from 'react';
-import { CalendarDays, Home, LayoutDashboard, MessageCircleMore, Moon, RotateCcw, Sparkles, Sun, Trash2 } from 'lucide-react';
+import { CalendarDays, Home, LayoutDashboard, MessageCircleMore, RotateCcw, Sparkles, Trash2 } from 'lucide-react';
 
 export type NavSection = 'home' | 'overview' | 'cora' | 'calendar';
 
@@ -17,25 +17,22 @@ interface LayoutProps {
   onResetDemo: () => void;
   onClearPlan: () => void;
   hasPlan: boolean;
-  darkMode: boolean;
-  onToggleDarkMode: () => void;
   isDemo: boolean;
   children: ReactNode;
 }
 
-export function Layout({ active, onNavigate, onDemo, onResetDemo, onClearPlan, hasPlan, darkMode, onToggleDarkMode, isDemo, children }: LayoutProps) {
+export function Layout({ active, onNavigate, onDemo, onResetDemo, onClearPlan, hasPlan, isDemo, children }: LayoutProps) {
   return (
     <div className="min-h-screen">
       <a href="#main-content" className="skip-link">Skip to main content</a>
       <header className="sticky top-0 z-40 border-b border-white/10 bg-cora-950 text-white shadow-lg shadow-cora-950/10">
         <div className="mx-auto flex h-[4.75rem] max-w-[1500px] items-center justify-between gap-4 px-4 sm:px-6 lg:px-8">
           <button className="group flex min-w-0 items-center gap-3 rounded-xl text-left focus-ring" onClick={() => onNavigate('home')} aria-label="Cora Smart Pots home">
-            <span className="flex h-10 w-[112px] shrink-0 items-center justify-center overflow-hidden rounded-lg bg-white">
+            <span className="brand-logo flex h-10 w-[112px] shrink-0 items-center justify-center overflow-hidden rounded-lg bg-white">
               <img src="/natwest-logo.png" alt="NatWest" className="w-[108px] max-w-none object-contain" />
             </span>
             <span className="hidden border-l border-white/20 pl-3 sm:block">
               <span className="block text-sm font-bold tracking-tight leading-none">Cora Smart Pots</span>
-              <span className="mt-1 block text-[9px] font-semibold uppercase tracking-[0.14em] text-cora-200">Unofficial concept</span>
             </span>
           </button>
 
@@ -57,10 +54,6 @@ export function Layout({ active, onNavigate, onDemo, onResetDemo, onClearPlan, h
           </div>
 
           <div className="flex items-center gap-2">
-            <button onClick={onToggleDarkMode} className="icon-button focus-ring" title={darkMode ? 'Use light theme' : 'Use dark theme'} aria-pressed={darkMode}>
-              {darkMode ? <Sun size={18} aria-hidden="true" /> : <Moon size={18} aria-hidden="true" />}
-              <span className="sr-only">{darkMode ? 'Use light theme' : 'Use dark theme'}</span>
-            </button>
             {isDemo ? (
               <button onClick={onResetDemo} className="header-action focus-ring" aria-label="Reset demo"><RotateCcw size={16} aria-hidden="true" /> <span className="hidden sm:inline">Reset demo</span></button>
             ) : (
@@ -92,9 +85,8 @@ export function Layout({ active, onNavigate, onDemo, onResetDemo, onClearPlan, h
         })}
       </nav>
 
-      <footer className="mx-auto hidden max-w-[1500px] items-center justify-between border-t border-slate-200 px-8 py-6 text-xs text-slate-500 md:flex">
-        <p>GreatUniHack 2026 · NatWest-inspired concept prototype</p>
-        <p>No bank connection · No money is moved</p>
+      <footer className="mx-auto hidden max-w-[1500px] items-center justify-center border-t border-slate-200 px-8 py-6 text-xs text-slate-500 md:flex">
+        <p>Hackathon demo · Simulated finances</p>
       </footer>
     </div>
   );

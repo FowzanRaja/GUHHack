@@ -1,5 +1,6 @@
 import {
   addDays,
+  addMonths,
   compareAsc,
   endOfMonth,
   format,
@@ -37,6 +38,42 @@ export interface GoalProjection {
   affordable: boolean;
   projectedDate?: string;
   validDeadline: boolean;
+}
+
+export interface GoalContributionEntry {
+  goalId: string;
+  date: string;
+  incomeEventId: string;
+  income: number;
+  desiredContribution: number;
+  contribution: number;
+  remainingAfterContribution: number;
+}
+
+export interface PaydayAllocation {
+  date: string;
+  incomeEventId: string;
+  income: number;
+  committedBeforeGoals: number;
+  remainingAfterGoals: number;
+}
+
+export interface GoalContributionSchedule {
+  entries: GoalContributionEntry[];
+  paydays: PaydayAllocation[];
+  onTrack: Record<string, boolean>;
+}
+
+export interface GoalPaydayBreakdown {
+  target: number;
+  saved: number;
+  remaining: number;
+  nextPayday?: string;
+  expectedIncome: number;
+  recommendedContribution: number;
+  remainingIncomeAfterPriorities: number;
+  onTrack: boolean;
+  eligiblePaydays: number;
 }
 
 function overrideFor(state: FinancialState, sourceId: string, date: string) {
@@ -132,24 +169,131 @@ export function projectGoal(state: FinancialState, goal: SavingsGoal, asOf = new
     return { contributionPerIncome: remaining, eligibleIncomeCount: 0, remaining, affordable: false, validDeadline: true };
   }
   const incomeEvents = incomeEventsForRange(state, start, deadline).filter((event) => event.amount > 0);
-  const contributionPerIncome = incomeEvents.length ? Math.ceil(remaining / incomeEvents.length) : remaining;
+  const schedule = goalContributionSchedule(state, start);
+  const entries = schedule.entries.filter((entry) => entry.goalId === goal.id);
+  const funded = entries.reduce((sum, entry) => sum + entry.contribution, 0);
   return {
-    contributionPerIncome,
+    contributionPerIncome: entries[0]?.contribution ?? 0,
     eligibleIncomeCount: incomeEvents.length,
     remaining,
-    affordable: incomeEvents.length > 0,
-    projectedDate: incomeEvents.at(-1)?.date,
+    affordable: funded >= remaining,
+    projectedDate: schedule.onTrack[goal.id] ? [...entries].reverse().find((entry) => entry.remainingAfterContribution === 0)?.date : undefined,
     validDeadline: true,
   };
 }
 
-function requestedForMonth(state: FinancialState, goal: SavingsGoal, monthStart: Date, monthEnd: Date): number {
-  const projection = projectGoal(state, goal, monthStart);
+function distributeAmount(total: number, incomes: FinancialEvent[]): number[] {
+  const incomeTotal = incomes.reduce((sum, income) => sum + income.amount, 0);
+  if (total <= 0 || incomeTotal <= 0) return incomes.map(() => 0);
+  let assigned = 0;
+  return incomes.map((income, index) => {
+    const share = index === incomes.length - 1 ? total - assigned : Math.floor((total * income.amount) / incomeTotal);
+    assigned += share;
+    return share;
+  });
+}
+
+function commitmentsBeforeGoals(state: FinancialState, referenceDate: Date, income: number): number {
+  const categories = new Map<ExpenseCategory, { amount: number; protected: boolean }>();
+  for (const expense of state.expenses) {
+    const amount = expenseAmountForMonth(expense, referenceDate);
+    const current = categories.get(expense.category) ?? { amount: 0, protected: false };
+    categories.set(expense.category, { amount: current.amount + amount, protected: current.protected || expense.essential });
+  }
+  const categoryTotal = [...categories.entries()].reduce((sum, [category, request]) => {
+    const override = state.allocationOverrides[`category-${category}`];
+    const amount = override === undefined ? request.amount : request.protected ? Math.max(request.amount, override) : override;
+    return sum + amount;
+  }, 0);
+  const manualProtected = state.manualPots
+    .filter((pot) => pot.priority === 'essential' || pot.priority === 'everyday')
+    .reduce((sum, pot) => sum + pot.allocation, 0);
+  const protectedTotal = categoryTotal + manualProtected;
+  const emergency = income > protectedTotal ? Math.min(state.emergencyFundContribution ?? 0, income - protectedTotal) : 0;
+  return protectedTotal + emergency;
+}
+
+export function goalContributionSchedule(state: FinancialState, asOf = new Date()): GoalContributionSchedule {
+  const start = startOfDay(asOf);
+  const validGoals = state.goals.filter((goal) => {
+    const deadline = tryParseDate(goal.targetDate);
+    return deadline && !isBefore(deadline, start) && goal.targetAmount > goal.currentAmount;
+  });
+  const onTrack = Object.fromEntries(state.goals.map((goal) => [goal.id, goal.targetAmount <= goal.currentAmount]));
+  if (!validGoals.length) return { entries: [], paydays: [], onTrack };
+  const deadlines = validGoals.map((goal) => tryParseDate(goal.targetDate)!).sort(compareAsc);
+  const finalDeadline = deadlines.at(-1)!;
+  const allIncome = incomeEventsForRange(state, start, finalDeadline).filter((event) => event.amount > 0);
+  const remaining = new Map(validGoals.map((goal) => [goal.id, clampMoney(goal.targetAmount - goal.currentAmount)]));
+  const entries: GoalContributionEntry[] = [];
+  const paydays: PaydayAllocation[] = [];
+
+  for (let month = startOfMonth(start); !isAfter(month, startOfMonth(finalDeadline)); month = addMonths(month, 1)) {
+    const monthEnd = endOfMonth(month);
+    const monthIncome = allIncome.filter((income) => income.date.slice(0, 7) === format(month, 'yyyy-MM'));
+    if (!monthIncome.length) continue;
+    const totalIncome = monthIncome.reduce((sum, income) => sum + income.amount, 0);
+    const committed = Math.min(totalIncome, commitmentsBeforeGoals(state, month, totalIncome));
+    const committedShares = distributeAmount(committed, monthIncome);
+
+    monthIncome.forEach((income, incomeIndex) => {
+      let goalBudget = Math.max(0, income.amount - committedShares[incomeIndex]);
+      const committedBeforeGoals = income.amount - goalBudget;
+      for (const goal of validGoals) {
+        const deadline = tryParseDate(goal.targetDate)!;
+        const stillNeeded = remaining.get(goal.id) ?? 0;
+        if (!stillNeeded || income.date > goal.targetDate) continue;
+        const eligible = allIncome.filter((event) => event.date >= income.date && event.date <= goal.targetDate).length;
+        if (!eligible) continue;
+        const monthlyOverride = state.allocationOverrides[`goal-${goal.id}`];
+        const eligibleThisMonth = monthIncome.filter((event) => event.date >= income.date && event.date <= goal.targetDate).length;
+        const desired = monthlyOverride === undefined
+          ? Math.ceil(stillNeeded / eligible)
+          : Math.min(stillNeeded, Math.ceil(monthlyOverride / Math.max(eligibleThisMonth, 1)));
+        const contribution = Math.min(desired, goalBudget, stillNeeded);
+        goalBudget -= contribution;
+        const after = stillNeeded - contribution;
+        remaining.set(goal.id, after);
+        entries.push({
+          goalId: goal.id,
+          date: income.date,
+          incomeEventId: income.id,
+          income: income.amount,
+          desiredContribution: desired,
+          contribution,
+          remainingAfterContribution: after,
+        });
+      }
+      paydays.push({ date: income.date, incomeEventId: income.id, income: income.amount, committedBeforeGoals, remainingAfterGoals: goalBudget });
+    });
+    if (monthEnd >= finalDeadline) break;
+  }
+
+  for (const goal of state.goals) onTrack[goal.id] = (remaining.get(goal.id) ?? clampMoney(goal.targetAmount - goal.currentAmount)) === 0;
+  return { entries, paydays, onTrack };
+}
+
+export function goalPaydayBreakdown(state: FinancialState, goal: SavingsGoal, asOf = new Date()): GoalPaydayBreakdown {
+  const start = startOfDay(asOf);
+  const remaining = clampMoney(goal.targetAmount - goal.currentAmount);
   const deadline = tryParseDate(goal.targetDate);
-  if (!projection.eligibleIncomeCount || !deadline) return 0;
-  const end = isBefore(deadline, monthEnd) ? deadline : monthEnd;
-  const eligibleThisMonth = incomeEventsForRange(state, monthStart, end).length;
-  return Math.min(projection.remaining, projection.contributionPerIncome * eligibleThisMonth);
+  const searchEnd = deadline && isAfter(deadline, start) ? deadline : addDays(start, 400);
+  const nextIncome = incomeEventsForRange(state, start, searchEnd).filter((event) => event.amount > 0).sort((a, b) => a.date.localeCompare(b.date))[0];
+  const schedule = goalContributionSchedule(state, start);
+  const contribution = nextIncome ? schedule.entries.find((entry) => entry.goalId === goal.id && entry.incomeEventId === nextIncome.id) : undefined;
+  const payday = nextIncome ? schedule.paydays.find((item) => item.incomeEventId === nextIncome.id) : undefined;
+  const eligiblePaydays = deadline ? incomeEventsForRange(state, start, deadline).filter((event) => event.amount > 0).length : 0;
+  return {
+    target: goal.targetAmount,
+    saved: goal.currentAmount,
+    remaining,
+    nextPayday: nextIncome?.date,
+    expectedIncome: nextIncome?.amount ?? 0,
+    recommendedContribution: contribution?.contribution ?? 0,
+    remainingIncomeAfterPriorities: payday?.remainingAfterGoals ?? 0,
+    onTrack: schedule.onTrack[goal.id] ?? remaining === 0,
+    eligiblePaydays,
+  };
 }
 
 export function expenseAmountForMonth(expense: Expense, referenceDate = new Date()): number {
@@ -217,9 +361,11 @@ export function calculatePlan(state: FinancialState, referenceDate = new Date())
       }
     : undefined;
 
+  const goalSchedule = goalContributionSchedule(state, referenceDate);
   const goalPots = state.goals.map((goal) => {
-    const requested = state.allocationOverrides[`goal-${goal.id}`] ?? requestedForMonth(state, goal, monthStart, monthEnd);
-    const allocation = Math.min(requested, Math.max(0, remaining));
+    const monthEntries = goalSchedule.entries.filter((entry) => entry.goalId === goal.id && entry.date >= isoDate(monthStart) && entry.date <= isoDate(monthEnd));
+    const requested = monthEntries.reduce((sum, entry) => sum + entry.desiredContribution, 0);
+    const allocation = monthEntries.reduce((sum, entry) => sum + entry.contribution, 0);
     remaining -= allocation;
     const validTarget = tryParseDate(goal.targetDate);
     return {
@@ -285,7 +431,7 @@ export function calculatePlan(state: FinancialState, referenceDate = new Date())
       title: 'Your essentials need more than is available',
       message: `There is a shortfall of ${formatMoney(shortfall)} across bills and everyday needs. No essential commitment has been hidden or reduced.`,
     });
-  } else if (goalPots.some((pot) => pot.allocation < pot.requested)) {
+  } else if (state.goals.some((goal) => !goalSchedule.onTrack[goal.id] && goal.targetAmount > goal.currentAmount)) {
     notices.push({
       id: 'goal-pressure',
       tone: 'warning',
@@ -339,45 +485,26 @@ function toPlannedPot(pot: FinancialState['manualPots'][number]): PlannedPot {
 function calendarEventsForRange(state: FinancialState, from: Date, to: Date): FinancialEvent[] {
   const incomes = incomeEventsForRange(state, from, to);
   const expenses = expenseEventsForRange(state, from, to);
-  const goalEvents: FinancialEvent[] = [];
-  const allocationEvents: FinancialEvent[] = [];
-  const monthPlans = new Map<string, FinancialPlan>();
-
-  for (const income of incomes) {
-    const monthKey = income.date.slice(0, 7);
-    const plan = monthPlans.get(monthKey) ?? calculatePlan(state, parseDate(income.date));
-    monthPlans.set(monthKey, plan);
-    const monthIncome = Math.max(plan.expectedIncome, 1);
-    const share = income.amount / monthIncome;
-    allocationEvents.push({
-      id: `allocation-${income.id}`,
-      date: income.date,
-      type: 'allocation',
-      name: 'Pots planned',
-      amount: Math.round(plan.totalAllocated * share),
-      balanceImpact: 0,
-      detail: 'Earmarked only — this does not spend the money',
-    });
-    for (const goal of state.goals) {
-      const targetDate = tryParseDate(goal.targetDate);
-      if (!targetDate || isAfter(parseDate(income.date), targetDate)) continue;
-      const projection = projectGoal(state, goal, parseDate(income.date));
-      if (!projection.remaining || !projection.eligibleIncomeCount) continue;
-      goalEvents.push({
-        id: `goal-${goal.id}-${income.id}`,
-        date: income.date,
-        type: 'goal',
-        name: `${goal.name} contribution`,
-        amount: Math.min(projection.contributionPerIncome, projection.remaining),
+  const planningStart = state.balanceAsOf && tryParseDate(state.balanceAsOf) ? addDays(parseDate(state.balanceAsOf), 1) : startOfDay(new Date());
+  const schedule = goalContributionSchedule(state, planningStart);
+  const goalEvents: FinancialEvent[] = schedule.entries
+    .filter((entry) => entry.contribution > 0 && entry.date >= isoDate(from) && entry.date <= isoDate(to))
+    .map((entry) => {
+      const goal = state.goals.find((item) => item.id === entry.goalId)!;
+      return {
+        id: `goal-${entry.goalId}-${entry.incomeEventId}`,
+        date: entry.date,
+        type: 'goal' as const,
+        name: `${goal.name} planned contribution`,
+        amount: entry.contribution,
         balanceImpact: 0,
         sourceId: goal.id,
-        detail: 'Planned transfer into a savings Pot',
-      });
-    }
-  }
+        detail: 'Recommended earmark from this payday — not recorded as saved yet',
+      };
+    });
 
   const order: Record<FinancialEvent['type'], number> = { income: 0, allocation: 1, goal: 2, expense: 3, warning: 4 };
-  return [...incomes, ...allocationEvents, ...goalEvents, ...expenses].sort(
+  return [...incomes, ...goalEvents, ...expenses].sort(
     (a, b) => compareAsc(parseDate(a.date), parseDate(b.date)) || order[a.type] - order[b.type],
   );
 }

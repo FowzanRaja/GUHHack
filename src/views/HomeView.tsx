@@ -1,4 +1,4 @@
-import { CalendarClock, ChevronRight, MessageCircleMore, ShieldCheck, Sparkles, WalletCards } from 'lucide-react';
+import { CalendarClock, ChevronRight, MessageCircleMore, Sparkles, WalletCards } from 'lucide-react';
 import type { FinancialPlan, FinancialState } from '../types';
 import type { NavSection } from '../components/Layout';
 import { formatMoney } from '../lib/money';
@@ -17,7 +17,6 @@ export function HomeView({ state, plan, onNavigate, onLoadDemo }: { state: Finan
             <button onClick={() => onNavigate('overview')} className="button-secondary button-on-dark-secondary focus-ring"><WalletCards size={17} /> View overview</button>
             {!hasData && <button onClick={onLoadDemo} className="button-secondary button-on-dark-secondary focus-ring"><Sparkles size={17} /> Try the £1,800 demo</button>}
           </div>
-          <p className="mt-6 flex items-center gap-2 text-xs text-cora-200"><ShieldCheck size={15} /> Unofficial concept prototype — no bank connection or real transfers</p>
         </div>
         <div className="welcome-orb welcome-orb-one" aria-hidden="true" />
         <div className="welcome-orb welcome-orb-two" aria-hidden="true" />
